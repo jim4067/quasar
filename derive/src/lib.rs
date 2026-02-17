@@ -198,8 +198,8 @@ pub fn derive_accounts(input: TokenStream) -> TokenStream {
                             #(#seed_len_checks)*
                             let __bump_val: u8 = #bump_expr;
                             let __bump_ref: &[u8] = &[__bump_val];
-                            let __pda_seeds = [#(quasar::cpi::Seed::from(#seed_idents),)* quasar::cpi::Seed::from(__bump_ref)];
-                            let __expected = quasar::pda::create_program_address(&__pda_seeds, &crate::ID)?;
+                            let __pda_seeds = [#(quasar_core::cpi::Seed::from(#seed_idents),)* quasar_core::cpi::Seed::from(__bump_ref)];
+                            let __expected = quasar_core::pda::create_program_address(&__pda_seeds, &crate::ID)?;
                             if *#field_name.to_account_view().address() != __expected {
                                 return Err(QuasarError::InvalidPda.into());
                             }
@@ -211,8 +211,8 @@ pub fn derive_accounts(input: TokenStream) -> TokenStream {
                     pda_checks.push(quote! {
                         {
                             #(#seed_len_checks)*
-                            let __pda_seeds = [#(quasar::cpi::Seed::from(#seed_idents)),*];
-                            let (__expected, __bump) = quasar::pda::find_program_address(&__pda_seeds, &crate::ID);
+                            let __pda_seeds = [#(quasar_core::cpi::Seed::from(#seed_idents)),*];
+                            let (__expected, __bump) = quasar_core::pda::find_program_address(&__pda_seeds, &crate::ID);
                             if *#field_name.to_account_view().address() != __expected {
                                 return Err(QuasarError::InvalidPda.into());
                             }
@@ -243,19 +243,19 @@ pub fn derive_accounts(input: TokenStream) -> TokenStream {
                             bump_struct_fields.push(quote! { #addr_field: Address });
                             bump_struct_inits.push(quote! { #addr_field: #capture_var });
 
-                            seed_elements.push(quote! { quasar::cpi::Seed::from(self.#addr_field.as_ref()) });
+                            seed_elements.push(quote! { quasar_core::cpi::Seed::from(self.#addr_field.as_ref()) });
                             continue;
                         }
                     }
                 }
-                seed_elements.push(quote! { quasar::cpi::Seed::from((#expr) as &[u8]) });
+                seed_elements.push(quote! { quasar_core::cpi::Seed::from((#expr) as &[u8]) });
             }
 
-            seed_elements.push(quote! { quasar::cpi::Seed::from(&self.#bump_arr_field as &[u8]) });
+            seed_elements.push(quote! { quasar_core::cpi::Seed::from(&self.#bump_arr_field as &[u8]) });
 
             seeds_methods.push(quote! {
                 #[inline(always)]
-                pub fn #method_name(&self) -> [quasar::cpi::Seed<'_>; #seed_count] {
+                pub fn #method_name(&self) -> [quasar_core::cpi::Seed<'_>; #seed_count] {
                     [#(#seed_elements),*]
                 }
             });
@@ -506,36 +506,26 @@ pub fn account(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             #[inline(always)]
-            pub fn init_signed(self, account: &mut Initialize<Self>, payer: &AccountView, rent: Option<&Rent>, signers: &[quasar::cpi::Signer]) -> Result<(), ProgramError> {
+            pub fn init_signed(self, account: &mut Initialize<Self>, payer: &AccountView, rent: Option<&Rent>, signers: &[quasar_core::cpi::Signer]) -> Result<(), ProgramError> {
                 let view = account.to_account_view();
 
-                use quasar::sysvars::Sysvar;
+                use quasar_core::sysvars::Sysvar;
                 let lamports = match rent {
                     Some(rent_account) => rent_account.get()?.try_minimum_balance(Self::SPACE)?,
-                    None => quasar::sysvars::rent::Rent::get()?.try_minimum_balance(Self::SPACE)?,
+                    None => quasar_core::sysvars::rent::Rent::get()?.try_minimum_balance(Self::SPACE)?,
                 };
 
                 if view.lamports() == 0 {
-                    quasar::cpi::system::CreateAccount {
-                        from: payer,
-                        to: view,
-                        lamports,
-                        space: Self::SPACE as u64,
-                        owner: &Self::OWNER,
-                    }.invoke_signed(signers)?;
+                    quasar_core::cpi::system::create_account(payer, view, lamports, Self::SPACE as u64, &Self::OWNER)
+                        .invoke_with_signers(signers)?;
                 } else {
                     let required = lamports.saturating_sub(view.lamports());
                     if required > 0 {
-                        quasar::cpi::system::Transfer {
-                            from: payer,
-                            to: view,
-                            lamports: required,
-                        }.invoke_signed(signers)?;
+                        quasar_core::cpi::system::transfer(payer, view, required)
+                            .invoke_with_signers(signers)?;
                     }
-                    quasar::cpi::system::Assign {
-                        account: view,
-                        owner: &Self::OWNER,
-                    }.invoke_signed(signers)?;
+                    quasar_core::cpi::system::assign(view, &Self::OWNER)
+                        .invoke_with_signers(signers)?;
                     unsafe { view.resize_unchecked(Self::SPACE) }?;
                 }
 
