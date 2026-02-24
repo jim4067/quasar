@@ -11,3 +11,9 @@ authors.workspace = true
 unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(target_os, values("solana"))',
 ] }
+
+[features]
+wincode = ["dep:wincode"]
+
+[dependencies]
+wincode = { version = "0.4.4", features = ["derive"], optional = true }

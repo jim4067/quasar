@@ -1929,6 +1929,9 @@ dependencies = [
 [[package]]
 name = "quasar-pod"
 version = "0.1.0"
+dependencies = [
+ "wincode",
+]
 
 [[package]]
 name = "quasar-profile"

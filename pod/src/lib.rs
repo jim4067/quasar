@@ -11,6 +11,8 @@
 #![no_std]
 
 use core::fmt;
+#[cfg(feature = "wincode")]
+use wincode::{SchemaRead, SchemaWrite};
 
 macro_rules! define_pod_unsigned {
     ($name:ident, $native:ty, $size:expr) => {
@@ -49,6 +51,7 @@ macro_rules! define_pod_common {
     ($name:ident, $native:ty, $size:expr) => {
         #[repr(transparent)]
         #[derive(Copy, Clone, Default)]
+        #[cfg_attr(feature = "wincode", derive(SchemaWrite, SchemaRead))]
         pub struct $name([u8; $size]);
 
         impl $name {
@@ -446,6 +449,7 @@ define_pod_signed!(PodI16, i16, 2);
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Default)]
+#[cfg_attr(feature = "wincode", derive(SchemaWrite, SchemaRead))]
 pub struct PodBool([u8; 1]);
 
 impl PodBool {
