@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+alloc = []
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(target_os, values("solana"))',
@@ -23,7 +26,9 @@ solana-instruction-view = { version = "1.0.0", features = ["cpi"] }
 solana-program-log = "1.0.0"
 
 [target.'cfg(any(target_os = "solana", target_arch = "bpf"))'.dependencies]
-solana-define-syscall = { version = "5.0.0", features = ["unstable-static-syscalls"] }
+solana-define-syscall = { version = "5.0.0", features = [
+    "unstable-static-syscalls",
+] }
 
 [target.'cfg(not(any(target_os = "solana", target_arch = "bpf")))'.dependencies]
 solana-instruction = "3.2.0"
