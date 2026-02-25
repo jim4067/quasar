@@ -6,12 +6,16 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  SOLANA_VERSION: stable
+  CARGO_TERM_COLOR: always
+
 jobs:
   rust_fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Get nightly toolchain version
         id: nightly
         run: echo "version=$(make nightly-version)" >> $GITHUB_OUTPUT
@@ -26,15 +30,16 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-clippy-
+            ${{ runner.os }}-cargo-clippy-
       - name: Get nightly toolchain version
         id: nightly
         run: echo "version=$(make nightly-version)" >> $GITHUB_OUTPUT
@@ -49,15 +54,16 @@ jobs:
     name: Check Features
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-hack-${{ hashFiles('**/Cargo.lock') }}
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-hack-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-hack-
+            ${{ runner.os }}-cargo-hack-
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
@@ -69,14 +75,36 @@ jobs:
     name: Cargo Build and Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v6
+      - name: Cache Solana tools
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/solana
+          key: ${{ runner.os }}-solana-${{ env.SOLANA_VERSION }}
+      - name: Install Solana tools (cargo-build-sbf)
+        run: |
+          if [ ! -f "$HOME/.local/share/solana/install/active_release/bin/cargo-build-sbf" ]; then
+            sh -c "$(curl -sSfL https://release.anza.xyz/${{ env.SOLANA_VERSION }}/install)"
+          fi
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+      - uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-test-${{ hashFiles('**/Cargo.lock') }}
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-test-
+            ${{ runner.os }}-cargo-test-
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build example programs
+        run: |
+          for dir in examples/*/; do
+            if [ -f "$dir/Cargo.toml" ]; then
+              echo "Building $dir"
+              cargo build-sbf --manifest-path "$dir/Cargo.toml"
+            fi
+          done
       - name: Test
         run: make test
