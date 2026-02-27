@@ -68,5 +68,4 @@ impl<'info> Take<'info> {
         });
         Ok(())
     }
-
 }

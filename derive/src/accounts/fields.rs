@@ -290,12 +290,11 @@ pub(super) fn process_fields(
         }
 
         if attrs.realloc_payer.is_some() && attrs.realloc.is_none() {
-            return Err(syn::Error::new_spanned(
-                field_name,
-                "`realloc::payer` requires `realloc`",
-            )
-            .to_compile_error()
-            .into());
+            return Err(
+                syn::Error::new_spanned(field_name, "`realloc::payer` requires `realloc`")
+                    .to_compile_error()
+                    .into(),
+            );
         }
 
         // --- Field construction ---

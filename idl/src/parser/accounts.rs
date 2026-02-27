@@ -76,7 +76,12 @@ fn has_writable_directive(attrs: &[syn::Attribute]) -> bool {
         };
         for directive in tokens_str.split(',') {
             let d = directive.trim();
-            if d == "mut" || d == "init" || d == "init_if_needed" || d.starts_with("close") || d.starts_with("realloc") {
+            if d == "mut"
+                || d == "init"
+                || d == "init_if_needed"
+                || d.starts_with("close")
+                || d.starts_with("realloc")
+            {
                 return true;
             }
         }

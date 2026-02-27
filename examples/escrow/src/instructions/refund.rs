@@ -48,5 +48,4 @@ impl<'info> Refund<'info> {
         });
         Ok(())
     }
-
 }
