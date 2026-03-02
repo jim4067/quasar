@@ -6,7 +6,7 @@ pub mod module_resolver;
 pub mod program;
 pub mod state;
 
-use std::{collections::HashMap, path::Path};
+use std::{collections::BTreeMap, path::Path};
 
 use crate::types::*;
 
@@ -156,7 +156,7 @@ fn check_instruction_input_name_collision(parsed: &ParsedProgram) {
             .iter()
             .find(|s| s.name == ix.accounts_type_name);
 
-        let mut input_field_sources: HashMap<String, Vec<&'static str>> = HashMap::new();
+        let mut input_field_sources: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
 
         if let Some(accounts_struct) = accounts_struct {
             for field in &accounts_struct.fields {
