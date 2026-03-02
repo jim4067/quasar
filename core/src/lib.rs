@@ -85,19 +85,19 @@ pub mod traits;
 /// Utility functions
 pub mod utils;
 
-/// Branch-free 32-byte address comparison.
+/// 32-byte address comparison via four u64 word comparisons.
 ///
-/// Two u128 XOR-folds via `read_unaligned` — no branches, no bounds checks.
-/// Compiles to 4 loads + 2 XORs + 1 OR + 1 compare on 64-bit targets.
+/// Short-circuits on the first non-matching word — wrong owner fails fast
+/// on the first 8 bytes. Native-width u64 ops on SBF (64-bit target).
 #[inline(always)]
 pub fn keys_eq(a: &solana_address::Address, b: &solana_address::Address) -> bool {
-    // SAFETY: Address is repr(transparent) over [u8; 32], so the pointer is
-    // valid for 32 bytes. read_unaligned handles arbitrary alignment.
-    unsafe {
-        let a = a.as_ref().as_ptr() as *const u128;
-        let b = b.as_ref().as_ptr() as *const u128;
-        (a.read_unaligned() ^ b.read_unaligned())
-            | (a.add(1).read_unaligned() ^ b.add(1).read_unaligned())
-            == 0
-    }
+    let a: &[u8] = a.as_ref();
+    let b: &[u8] = b.as_ref();
+    u64::from_le_bytes(a[..8].try_into().unwrap()) == u64::from_le_bytes(b[..8].try_into().unwrap())
+        && u64::from_le_bytes(a[8..16].try_into().unwrap())
+            == u64::from_le_bytes(b[8..16].try_into().unwrap())
+        && u64::from_le_bytes(a[16..24].try_into().unwrap())
+            == u64::from_le_bytes(b[16..24].try_into().unwrap())
+        && u64::from_le_bytes(a[24..32].try_into().unwrap())
+            == u64::from_le_bytes(b[24..32].try_into().unwrap())
 }
