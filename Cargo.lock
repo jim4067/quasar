@@ -678,28 +678,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
-name = "cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bs58",
- "clap",
- "clap_complete",
- "ctrlc",
- "dialoguer",
- "dirs",
- "ed25519-dalek",
- "indicatif",
- "quasar-idl",
- "quasar-profile",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "toml 0.8.23",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2122,8 +2100,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "quasar-cli"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bs58",
+ "clap",
+ "clap_complete",
+ "ctrlc",
+ "dialoguer",
+ "dirs",
+ "ed25519-dalek",
+ "indicatif",
+ "quasar-idl",
+ "quasar-profile",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "quasar-derive"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2149,7 +2149,7 @@ dependencies = [
 
 [[package]]
 name = "quasar-idl"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "proc-macro2",
  "serde",
@@ -2160,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "quasar-lang"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "const-crypto",
  "quasar-derive",
@@ -2188,14 +2188,14 @@ dependencies = [
 
 [[package]]
 name = "quasar-pod"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "wincode",
 ]
 
 [[package]]
 name = "quasar-profile"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "addr2line",
  "chrono",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "quasar-spl"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "quasar-lang",
  "solana-address 2.3.0",

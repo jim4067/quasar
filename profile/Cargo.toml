@@ -1,8 +1,11 @@
 [package]
 name = "quasar-profile"
-version = "0.1.0"
-edition = "2021"
-
+description = "SBF binary profiler for the Quasar Solana framework"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 [dependencies]
 goblin = "0.9"

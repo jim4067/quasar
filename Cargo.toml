@@ -4,7 +4,7 @@ members = ["lang", "derive", "pod", "spl", "idl", "profile", "examples/*", "test
 exclude = ["examples/anchor-vault"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/blueshift-gg/quasar"
