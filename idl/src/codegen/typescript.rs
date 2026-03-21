@@ -52,10 +52,7 @@ fn generate_ts(idl: &Idl, target: TsTarget) -> String {
             if has_instructions {
                 out.push_str("import { Buffer } from \"buffer\";\n");
             }
-            out.push_str(
-                "import { Address, TransactionInstruction } from \
-                 \"@solana/web3.js\";\n",
-            );
+            out.push_str("import { Address, TransactionInstruction } from \"@solana/web3.js\";\n");
         }
         TsTarget::Kit => {
             let mut kit_imports: Vec<&str> = vec!["type Address", "address"];
