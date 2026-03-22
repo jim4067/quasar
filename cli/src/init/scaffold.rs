@@ -22,20 +22,48 @@ pub(super) fn scaffold(
     let root = Path::new(dir);
 
     if dir == "." {
-        // Scaffold into current directory — check it doesn't already have a project
-        if root.join("Cargo.toml").exists() || root.join("Quasar.toml").exists() {
+        if root.join("Quasar.toml").exists() {
             eprintln!(
                 "  {}",
-                crate::style::fail("current directory already contains a project")
+                crate::style::fail("current directory is already a Quasar project")
             );
             std::process::exit(1);
         }
+        if root.join("Cargo.toml").exists() {
+            eprintln!(
+                "  {}",
+                crate::style::fail("current directory already contains a Rust project")
+            );
+            std::process::exit(1);
+        }
+        if fs::read_dir(root).is_ok_and(|mut d| d.next().is_some()) {
+            eprintln!("  {}", crate::style::fail("current directory is not empty"));
+            std::process::exit(1);
+        }
     } else if root.exists() {
-        eprintln!(
-            "  {}",
-            crate::style::fail(&format!("directory '{dir}' already exists"))
-        );
-        std::process::exit(1);
+        if !root.is_dir() {
+            eprintln!(
+                "  {}",
+                crate::style::fail(&format!("path '{dir}' exists and is not a directory"))
+            );
+            std::process::exit(1);
+        }
+        if root.join("Quasar.toml").exists() {
+            eprintln!(
+                "  {}",
+                crate::style::fail(&format!("directory '{dir}' is already a Quasar project"))
+            );
+            std::process::exit(1);
+        }
+        if fs::read_dir(root).is_ok_and(|mut d| d.next().is_some()) {
+            eprintln!(
+                "  {}",
+                crate::style::fail(&format!(
+                    "directory '{dir}' already exists and is not empty"
+                ))
+            );
+            std::process::exit(1);
+        }
     }
 
     let src = root.join("src");
