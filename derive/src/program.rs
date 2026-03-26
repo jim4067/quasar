@@ -152,9 +152,9 @@ pub(crate) fn program(_attr: TokenStream, item: TokenStream) -> TokenStream {
                                     _ => return None,
                                 };
                                 let ty = if classify_dynamic_string(&pt.ty).is_some() {
-                                    syn::parse_quote!(alloc::vec::Vec<u8>)
+                                    syn::parse_quote!(quasar_lang::client::DynBytes)
                                 } else if let Some((elem, _, _)) = classify_dynamic_vec(&pt.ty) {
-                                    syn::parse_quote!(alloc::vec::Vec<#elem>)
+                                    syn::parse_quote!(quasar_lang::client::DynVec<#elem>)
                                 } else if classify_tail(&pt.ty).is_some() {
                                     syn::parse_quote!(quasar_lang::client::TailBytes)
                                 } else {

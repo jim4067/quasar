@@ -274,7 +274,8 @@ pub fn generate_client(parsed: &ParsedProgram) -> String {
                 .expect("write to String");
                 writeln!(
                     out,
-                    "        return wincode::deserialize::<{}>(payload).ok().map(ProgramAccount::{});",
+                    "        return \
+                     wincode::deserialize::<{}>(payload).ok().map(ProgramAccount::{});",
                     acc.name, acc.name
                 )
                 .expect("write to String");
@@ -349,7 +350,8 @@ pub fn generate_client(parsed: &ParsedProgram) -> String {
                 .expect("write to String");
                 writeln!(
                     out,
-                    "        return wincode::deserialize::<{}>(payload).ok().map(ProgramEvent::{});",
+                    "        return \
+                     wincode::deserialize::<{}>(payload).ok().map(ProgramEvent::{});",
                     ev.name, ev.name
                 )
                 .expect("write to String");

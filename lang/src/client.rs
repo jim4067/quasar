@@ -15,21 +15,21 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-use core::mem::MaybeUninit;
-use wincode::{
-    config::ConfigCore,
-    error::{ReadResult, WriteResult},
-    io::{Reader, Writer},
-    len::{SeqLen, UseIntLen},
-    SchemaRead, SchemaWrite,
-};
-
-// Re-export wincode for downstream derive macro codegen.
-pub use wincode;
-
 // Re-export instruction types used by generated client code.
 pub use solana_instruction::{AccountMeta, Instruction};
+// Re-export wincode for downstream derive macro codegen.
+pub use wincode;
+use {
+    alloc::vec::Vec,
+    core::mem::MaybeUninit,
+    wincode::{
+        config::ConfigCore,
+        error::{ReadResult, WriteResult},
+        io::{Reader, Writer},
+        len::{SeqLen, UseIntLen},
+        SchemaRead, SchemaWrite,
+    },
+};
 
 /// Length encoding: little-endian `u32` prefix (Quasar wire format).
 type U32Len = UseIntLen<u32>;
@@ -46,31 +46,31 @@ pub struct DynBytes(pub Vec<u8>);
 
 unsafe impl<C: ConfigCore> SchemaWrite<C> for DynBytes
 where
-    U32Len: wincode::len::SeqLen<C>,
+    U32Len: SeqLen<C>,
 {
-    type Src = Vec<u8>;
+    type Src = Self;
 
-    fn size_of(src: &Self::Src) -> WriteResult<usize> {
-        Ok(U32Len::write_bytes_needed(src.len())? + src.len())
+    fn size_of(src: &Self) -> WriteResult<usize> {
+        Ok(U32Len::write_bytes_needed(src.0.len())? + src.0.len())
     }
 
-    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
-        U32Len::write(writer.by_ref(), src.len())?;
-        writer.write(src)?;
+    fn write(mut writer: impl Writer, src: &Self) -> WriteResult<()> {
+        U32Len::write(writer.by_ref(), src.0.len())?;
+        writer.write(&src.0)?;
         Ok(())
     }
 }
 
 unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for DynBytes
 where
-    U32Len: wincode::len::SeqLen<C>,
+    U32Len: SeqLen<C>,
 {
-    type Dst = Vec<u8>;
+    type Dst = Self;
 
-    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self::Dst>) -> ReadResult<()> {
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self>) -> ReadResult<()> {
         let len = U32Len::read(reader.by_ref())?;
         let bytes = reader.take_scoped(len)?;
-        dst.write(bytes.to_vec());
+        dst.write(DynBytes(bytes.to_vec()));
         Ok(())
     }
 }
@@ -82,27 +82,26 @@ where
 /// A dynamically-sized vector of `T` prefixed with a `u32 LE` element count.
 ///
 /// Used in generated client code to serialize `Vec<T>` instruction arguments.
-pub struct DynVec<T>(core::marker::PhantomData<T>);
+pub struct DynVec<T>(pub Vec<T>);
 
 unsafe impl<T, C: ConfigCore> SchemaWrite<C> for DynVec<T>
 where
-    T: SchemaWrite<C>,
-    T::Src: Sized,
-    U32Len: wincode::len::SeqLen<C>,
+    T: SchemaWrite<C, Src = T>,
+    U32Len: SeqLen<C>,
 {
-    type Src = Vec<T::Src>;
+    type Src = Self;
 
-    fn size_of(src: &Self::Src) -> WriteResult<usize> {
-        let mut total = U32Len::write_bytes_needed(src.len())?;
-        for item in src {
+    fn size_of(src: &Self) -> WriteResult<usize> {
+        let mut total = U32Len::write_bytes_needed(src.0.len())?;
+        for item in &src.0 {
             total += T::size_of(item)?;
         }
         Ok(total)
     }
 
-    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
-        U32Len::write(writer.by_ref(), src.len())?;
-        for item in src {
+    fn write(mut writer: impl Writer, src: &Self) -> WriteResult<()> {
+        U32Len::write(writer.by_ref(), src.0.len())?;
+        for item in &src.0 {
             T::write(writer.by_ref(), item)?;
         }
         Ok(())
@@ -111,18 +110,18 @@ where
 
 unsafe impl<'de, T, C: ConfigCore> SchemaRead<'de, C> for DynVec<T>
 where
-    T: SchemaRead<'de, C>,
-    U32Len: wincode::len::SeqLen<C>,
+    T: SchemaRead<'de, C, Dst = T>,
+    U32Len: SeqLen<C>,
 {
-    type Dst = Vec<T::Dst>;
+    type Dst = Self;
 
-    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self::Dst>) -> ReadResult<()> {
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self>) -> ReadResult<()> {
         let len = U32Len::read(reader.by_ref())?;
         let mut vec = Vec::with_capacity(len);
         for _ in 0..len {
             vec.push(T::get(reader.by_ref())?);
         }
-        dst.write(vec);
+        dst.write(DynVec(vec));
         Ok(())
     }
 }
@@ -139,22 +138,22 @@ where
 pub struct TailBytes(pub Vec<u8>);
 
 unsafe impl<C: ConfigCore> SchemaWrite<C> for TailBytes {
-    type Src = Vec<u8>;
+    type Src = Self;
 
-    fn size_of(src: &Self::Src) -> WriteResult<usize> {
-        Ok(src.len())
+    fn size_of(src: &Self) -> WriteResult<usize> {
+        Ok(src.0.len())
     }
 
-    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
-        writer.write(src)?;
+    fn write(mut writer: impl Writer, src: &Self) -> WriteResult<()> {
+        writer.write(&src.0)?;
         Ok(())
     }
 }
 
 unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for TailBytes {
-    type Dst = Vec<u8>;
+    type Dst = Self;
 
-    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self::Dst>) -> ReadResult<()> {
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self>) -> ReadResult<()> {
         // Consume all remaining bytes one at a time. This is only used
         // off-chain for instruction data deserialization, so the byte-at-a-time
         // approach is acceptable.
@@ -162,7 +161,7 @@ unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for TailBytes {
         while let Ok(b) = reader.take_byte() {
             bytes.push(b);
         }
-        dst.write(bytes);
+        dst.write(TailBytes(bytes));
         Ok(())
     }
 }

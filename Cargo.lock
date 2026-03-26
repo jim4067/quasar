@@ -2174,6 +2174,7 @@ dependencies = [
  "solana-program-error",
  "solana-program-log",
  "trybuild",
+ "wincode",
 ]
 
 [[package]]
