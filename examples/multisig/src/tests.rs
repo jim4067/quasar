@@ -42,12 +42,10 @@ fn config_account(
         label: DynBytes::new(label.to_vec()),
         signers: DynVec::new(signers.to_vec()),
     };
-    let mut data = MULTISIG_CONFIG_ACCOUNT_DISCRIMINATOR.to_vec();
-    data.extend_from_slice(&wincode::serialize(&config).unwrap());
     Account {
         address,
         lamports: 1_000_000,
-        data,
+        data: wincode::serialize(&config).unwrap(),
         owner: crate::ID,
         executable: false,
     }

@@ -71,12 +71,10 @@ fn escrow_account(
         receive,
         bump,
     };
-    let mut data = ESCROW_ACCOUNT_DISCRIMINATOR.to_vec();
-    data.extend_from_slice(&wincode::serialize(&escrow).unwrap());
     Account {
         address,
         lamports: 2_000_000,
-        data,
+        data: wincode::serialize(&escrow).unwrap(),
         owner: crate::ID,
         executable: false,
     }

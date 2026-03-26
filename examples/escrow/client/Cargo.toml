@@ -6,5 +6,5 @@ edition = "2021"
 [dependencies]
 quasar-lang = { path = "../../../lang" }
 wincode = { version = "0.4", features = ["derive"] }
-solana-address = "2"
+solana-address = { version = "2", features = ["curve25519"] }
 solana-instruction = "3"

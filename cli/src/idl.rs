@@ -18,11 +18,13 @@ pub fn generate(crate_path: &Path, languages: &[&str]) -> CliResult {
 
     // Generate Rust client code before build_idl consumes parsed
     let (client_code, client_cargo_toml) = if languages.contains(&"rust") {
+        let pdas = codegen::rust::has_pdas(&parsed);
         (
             Some(codegen::rust::generate_client(&parsed)),
             Some(codegen::rust::generate_cargo_toml(
                 &parsed.crate_name,
                 &parsed.version,
+                pdas,
             )),
         )
     } else {
@@ -85,17 +87,23 @@ pub fn generate(crate_path: &Path, languages: &[&str]) -> CliResult {
     }
 
     // Rust client
-    if let (Some(code), Some(cargo_toml)) = (client_code, client_cargo_toml) {
+    if let (Some(files), Some(cargo_toml)) = (client_code, client_cargo_toml) {
         let crate_name = &idl.metadata.crate_name;
         let client_dir = PathBuf::from("target")
             .join("client")
             .join("rust")
             .join(format!("{}-client", crate_name));
-        let client_src_dir = client_dir.join("src");
-        std::fs::create_dir_all(&client_src_dir)?;
 
         std::fs::write(client_dir.join("Cargo.toml"), &cargo_toml)?;
-        std::fs::write(client_src_dir.join("lib.rs"), &code)?;
+
+        let src_dir = client_dir.join("src");
+        for (path, content) in &files {
+            let file_path = src_dir.join(path);
+            if let Some(parent) = file_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&file_path, content)?;
+        }
     }
 
     // Python client

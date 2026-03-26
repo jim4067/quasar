@@ -615,6 +615,11 @@ fn test_program() -> ParsedProgram {
     }
 }
 
+/// Concatenate all generated file contents for assertion checking.
+fn all_content(files: &[(String, String)]) -> String {
+    files.iter().map(|(_, content)| content.as_str()).collect::<Vec<_>>().join("\n")
+}
+
 // ---------------------------------------------------------------------------
 // Instruction codegen: no args
 // ---------------------------------------------------------------------------
@@ -629,7 +634,8 @@ fn rust_codegen_no_arg_instruction() {
         args: vec![],
         has_remaining: false,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub struct InitializeInstruction {"),
@@ -658,14 +664,21 @@ fn rust_codegen_primitive_args() {
         ],
         has_remaining: false,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // Struct fields use native types
     assert!(code.contains("pub amount: u64,"), "{code}");
     assert!(code.contains("pub flag: bool,"), "{code}");
-    // Each arg serialized via wincode
-    assert!(code.contains("wincode::serialize(&ix.amount)"), "{code}");
-    assert!(code.contains("wincode::serialize(&ix.flag)"), "{code}");
+    // Each arg serialized directly into the data buffer
+    assert!(
+        code.contains("wincode::serialize_into(&mut data, &ix.amount)"),
+        "{code}"
+    );
+    assert!(
+        code.contains("wincode::serialize_into(&mut data, &ix.flag)"),
+        "{code}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -710,7 +723,8 @@ fn rust_codegen_account_metas() {
                 },
             ],
         });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("AccountMeta::new(ix.from, true)"),
@@ -750,7 +764,8 @@ fn rust_codegen_dynamic_string_uses_dyn_bytes() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub name: DynBytes,"),
@@ -778,11 +793,21 @@ fn rust_codegen_dynamic_types_import() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
+    // Only the actually-used wrapper type is imported
     assert!(
-        code.contains("use quasar_lang::client::{DynBytes, DynVec, TailBytes};"),
-        "dynamic types must be imported: {code}"
+        code.contains("use quasar_lang::client::{DynBytes};"),
+        "DynBytes must be imported: {code}"
+    );
+    assert!(
+        !code.contains("DynVec"),
+        "DynVec must not be imported when unused: {code}"
+    );
+    assert!(
+        !code.contains("TailBytes"),
+        "TailBytes must not be imported when unused: {code}"
     );
 }
 
@@ -809,7 +834,8 @@ fn rust_codegen_dyn_bytes_u8_prefix() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub name: DynBytes<u8>,"),
@@ -833,7 +859,8 @@ fn rust_codegen_dyn_bytes_u16_prefix() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub name: DynBytes<u16>,"),
@@ -857,7 +884,8 @@ fn rust_codegen_dyn_bytes_u32_default() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub name: DynBytes,"),
@@ -885,7 +913,8 @@ fn rust_codegen_dyn_vec_u8_prefix() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub tags: DynVec<u64, u8>,"),
@@ -909,7 +938,8 @@ fn rust_codegen_dyn_vec_u16_prefix() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub tags: DynVec<u64, u16>,"),
@@ -933,7 +963,8 @@ fn rust_codegen_dyn_vec_u32_default() {
     let (_, instructions) = program::extract_program_module(&file).unwrap();
     let mut parsed = test_program();
     parsed.instructions = instructions;
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub tags: DynVec<u64>,"),
@@ -959,7 +990,8 @@ fn rust_codegen_remaining_accounts_present() {
         args: vec![],
         has_remaining: true,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("pub remaining_accounts: Vec<AccountMeta>,"),
@@ -981,7 +1013,8 @@ fn rust_codegen_remaining_accounts_absent() {
         args: vec![],
         has_remaining: false,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(!code.contains("remaining_accounts"), "{code}");
 }
@@ -1005,7 +1038,8 @@ fn rust_codegen_accounts() {
         pub struct Empty {}
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // Discriminator constants
     assert!(
@@ -1017,24 +1051,36 @@ fn rust_codegen_accounts() {
         "{code}"
     );
 
-    // Struct with wincode derives and repr(C)
+    // Struct with manual impls (no SchemaWrite/SchemaRead derive, no repr(C))
     assert!(
-        code.contains(
-            "#[derive(Clone, Copy, SchemaWrite, SchemaRead)]\n#[repr(C)]\npub struct Escrow {"
-        ),
+        code.contains("#[derive(Clone, Copy)]\npub struct Escrow {"),
         "{code}"
     );
     assert!(code.contains("pub maker: Address,"), "{code}");
     assert!(code.contains("pub amount: u64,"), "{code}");
 
+    // Manual SchemaWrite/SchemaRead impls with discriminator handling
+    assert!(
+        code.contains("unsafe impl<C: ConfigCore> SchemaWrite<C> for Escrow"),
+        "{code}"
+    );
+    assert!(
+        code.contains("unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for Escrow"),
+        "{code}"
+    );
+    assert!(
+        code.contains("writer.write(ESCROW_ACCOUNT_DISCRIMINATOR)"),
+        "{code}"
+    );
+
     // Enum
     assert!(code.contains("Escrow(Escrow),"), "{code}");
     assert!(code.contains("Empty,"), "{code}");
 
-    // Decoder uses wincode::deserialize, no manual offset tracking
+    // Decoder passes full data (SchemaRead handles discriminator)
     assert!(code.contains("pub fn decode_account"), "{code}");
     assert!(
-        code.contains("wincode::deserialize::<Escrow>(payload)"),
+        code.contains("wincode::deserialize::<Escrow>(data)"),
         "{code}"
     );
     assert!(!code.contains("let mut offset"), "{code}");
@@ -1059,7 +1105,8 @@ fn rust_codegen_events() {
         pub struct OrderCancelled {}
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // Discriminator constants
     assert!(
@@ -1071,25 +1118,40 @@ fn rust_codegen_events() {
         "{code}"
     );
 
-    // Struct with wincode derives
+    // Struct with manual impls (no derives, same pattern as accounts)
     assert!(
-        code.contains("#[derive(SchemaWrite, SchemaRead)]\npub struct TradeExecuted {"),
+        code.contains("#[derive(Clone, Copy)]\npub struct TradeExecuted {"),
         "{code}"
     );
     assert!(code.contains("pub maker: Address,"), "{code}");
     assert!(code.contains("pub amount: u64,"), "{code}");
 
+    // Manual SchemaWrite/SchemaRead impls
+    assert!(
+        code.contains("unsafe impl<C: ConfigCore> SchemaWrite<C> for TradeExecuted"),
+        "{code}"
+    );
+    assert!(
+        code.contains("unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for TradeExecuted"),
+        "{code}"
+    );
+    assert!(
+        code.contains("writer.write(TRADE_EXECUTED_EVENT_DISCRIMINATOR)"),
+        "{code}"
+    );
+
     // Enum
     assert!(code.contains("TradeExecuted(TradeExecuted),"), "{code}");
     assert!(code.contains("OrderCancelled,"), "{code}");
 
-    // Decoder uses wincode, no manual offset tracking
+    // Decoder passes full data (SchemaRead handles discriminator)
     assert!(code.contains("pub fn decode_event"), "{code}");
     assert!(
-        code.contains("wincode::deserialize::<TradeExecuted>(payload)"),
+        code.contains("wincode::deserialize::<TradeExecuted>(data)"),
         "{code}"
     );
     assert!(!code.contains("let mut offset"), "{code}");
+    assert!(!code.contains("payload"), "no manual payload slicing: {code}");
 }
 
 // ---------------------------------------------------------------------------
@@ -1113,7 +1175,8 @@ fn rust_codegen_custom_data_structs() {
         args: vec![("config".to_string(), syn::parse_str("OrderConfig").unwrap())],
         has_remaining: false,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // Custom struct generated with wincode derives
     assert!(
@@ -1125,7 +1188,10 @@ fn rust_codegen_custom_data_structs() {
 
     // Instruction uses the custom type
     assert!(code.contains("pub config: OrderConfig,"), "{code}");
-    assert!(code.contains("wincode::serialize(&ix.config)"), "{code}");
+    assert!(
+        code.contains("wincode::serialize_into(&mut data, &ix.config)"),
+        "{code}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1135,7 +1201,7 @@ fn rust_codegen_custom_data_structs() {
 #[test]
 fn rust_codegen_cargo_toml() {
     use quasar_idl::codegen::rust::generate_cargo_toml;
-    let toml = generate_cargo_toml("my-program", "0.1.0");
+    let toml = generate_cargo_toml("my-program", "0.1.0", false);
     assert!(toml.contains("name = \"my-program-client\""), "{toml}");
     assert!(toml.contains("version = \"0.1.0\""), "{toml}");
     assert!(toml.contains("quasar-lang"), "{toml}");
@@ -1149,7 +1215,8 @@ fn rust_codegen_cargo_toml() {
 #[test]
 fn rust_codegen_program_id() {
     let parsed = test_program();
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
     assert!(
         code.contains(
             r#"pub const ID: Address = solana_address::address!("ABcDeFgH111111111111111111111111111111111111");"#
@@ -1172,7 +1239,8 @@ fn rust_codegen_imports_no_dynamic() {
         args: vec![],
         has_remaining: false,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // No dynamic types → no Vec import, no wrapper import
     assert!(!code.contains("use std::vec::Vec;"), "{code}");
@@ -1189,7 +1257,8 @@ fn rust_codegen_imports_with_remaining() {
         args: vec![],
         has_remaining: true,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // remaining_accounts needs Vec
     assert!(code.contains("use std::vec::Vec;"), "{code}");
@@ -1205,7 +1274,8 @@ fn rust_codegen_no_wincode_derive_import_when_unused() {
         args: vec![("amount".to_string(), syn::parse_str("u64").unwrap())],
         has_remaining: false,
     });
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // No custom types, events, or accounts → no SchemaWrite/SchemaRead import
     assert!(
@@ -1227,7 +1297,8 @@ fn rust_codegen_wincode_derive_import_with_events() {
         }
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     assert!(
         code.contains("use wincode::{SchemaWrite, SchemaRead}"),
@@ -1251,15 +1322,24 @@ fn rust_codegen_account_with_dynamic_field_no_copy() {
         }
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
-    // Dynamic field (String) → no Copy, no repr(C)
+    // Dynamic field (String) → no Copy, manual impls (no derives)
     assert!(
-        !code.contains("#[derive(Clone, Copy,"),
+        !code.contains("#[derive(Clone, Copy)]\npub struct Profile"),
         "account with dynamic field must not derive Copy: {code}"
     );
     assert!(
-        code.contains("#[derive(Clone, SchemaWrite, SchemaRead)]"),
+        code.contains("#[derive(Clone)]\npub struct Profile {"),
+        "{code}"
+    );
+    assert!(
+        code.contains("unsafe impl<C: ConfigCore> SchemaWrite<C> for Profile"),
+        "{code}"
+    );
+    assert!(
+        code.contains("unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for Profile"),
         "{code}"
     );
     assert!(
@@ -1280,14 +1360,22 @@ fn rust_codegen_account_fixed_fields_has_copy() {
         }
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
-    // All fixed-size fields → derive Copy + repr(C)
+    // All fixed-size fields → derive Copy, manual impls (no repr(C))
     assert!(
-        code.contains("#[derive(Clone, Copy, SchemaWrite, SchemaRead)]"),
+        code.contains("#[derive(Clone, Copy)]\npub struct Escrow {"),
         "{code}"
     );
-    assert!(code.contains("#[repr(C)]"), "{code}");
+    assert!(
+        code.contains("unsafe impl<C: ConfigCore> SchemaWrite<C> for Escrow"),
+        "{code}"
+    );
+    assert!(
+        !code.contains("#[repr(C)]"),
+        "accounts no longer use repr(C): {code}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1313,7 +1401,8 @@ fn rust_codegen_account_with_inner_struct() {
         }
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // InnerConfig must be defined in generated code
     assert!(
@@ -1326,9 +1415,9 @@ fn rust_codegen_account_with_inner_struct() {
     // Account uses the inner type
     assert!(code.contains("pub config: InnerConfig,"), "{code}");
 
-    // decode_account should compile (InnerConfig has SchemaRead)
+    // decode_account passes full data (SchemaRead handles discriminator)
     assert!(
-        code.contains("wincode::deserialize::<Vault>(payload)"),
+        code.contains("wincode::deserialize::<Vault>(data)"),
         "{code}"
     );
 }
@@ -1352,7 +1441,8 @@ fn rust_codegen_event_with_inner_struct() {
         }
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // TradeInfo must be defined
     assert!(
@@ -1386,7 +1476,8 @@ fn rust_codegen_deeply_nested_structs() {
         }
         "#,
     ));
-    let code = generate_client(&parsed);
+    let files = generate_client(&parsed);
+    let code = all_content(&files);
 
     // Both Inner and Outer must be defined
     assert!(
