@@ -680,6 +680,118 @@ fn rust_codegen_events() {
         code.contains("data.starts_with(ORDER_CANCELLED_EVENT_DISCRIMINATOR)"),
         "should match OrderCancelled discriminator"
     );
+
+    // Event structs should have wincode derives
+    assert!(
+        code.contains("#[derive(SchemaWrite, SchemaRead)]"),
+        "event structs should have wincode derives"
+    );
+
+    // decode_event should use wincode::deserialize
+    assert!(
+        code.contains("wincode::deserialize"),
+        "decode_event should use wincode::deserialize"
+    );
+
+    // Should NOT have manual offset tracking
+    assert!(
+        !code.contains("let mut offset"),
+        "should not have manual offset deserialization"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Rust codegen: accounts with wincode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rust_codegen_accounts_wincode() {
+    use quasar_idl::{codegen::rust::generate_client, parser::ParsedProgram};
+
+    let state_accounts = state::extract_state_accounts(&parse_file(
+        r#"
+        #[account(discriminator = [1])]
+        pub struct Escrow {
+            pub maker: Address,
+            pub amount: u64,
+        }
+        "#,
+    ));
+
+    let parsed = ParsedProgram {
+        program_id: "ABcDeFgH111111111111111111111111111111111111".to_string(),
+        program_name: "test_program".to_string(),
+        crate_name: "test-program".to_string(),
+        version: "0.1.0".to_string(),
+        instructions: vec![],
+        accounts_structs: vec![],
+        state_accounts,
+        events: vec![],
+        errors: vec![],
+        data_structs: vec![],
+    };
+
+    let code = generate_client(&parsed);
+
+    // Account structs should have wincode derives
+    assert!(
+        code.contains("#[derive(Clone, Copy, SchemaWrite, SchemaRead)]"),
+        "account structs should have wincode derives, got:\n{code}"
+    );
+
+    // decode_account should use wincode::deserialize
+    assert!(
+        code.contains("wincode::deserialize"),
+        "decode_account should use wincode::deserialize, got:\n{code}"
+    );
+
+    // Should NOT have manual offset tracking
+    assert!(
+        !code.contains("let mut offset"),
+        "should not have manual offset deserialization"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Rust codegen: instruction serialization with wincode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rust_codegen_instruction_wincode_serialize() {
+    use quasar_idl::{codegen::rust::generate_client, parser::ParsedProgram};
+
+    let parsed = ParsedProgram {
+        program_id: "ABcDeFgH111111111111111111111111111111111111".to_string(),
+        program_name: "test_program".to_string(),
+        crate_name: "test-program".to_string(),
+        version: "0.1.0".to_string(),
+        instructions: vec![program::RawInstruction {
+            name: "deposit".to_string(),
+            discriminator: vec![1],
+            accounts_type_name: "Deposit".to_string(),
+            args: vec![("amount".to_string(), syn::parse_str("u64").unwrap())],
+            has_remaining: false,
+        }],
+        accounts_structs: vec![],
+        state_accounts: vec![],
+        events: vec![],
+        errors: vec![],
+        data_structs: vec![],
+    };
+
+    let code = generate_client(&parsed);
+
+    // Should use wincode::serialize for instruction args
+    assert!(
+        code.contains("wincode::serialize"),
+        "instruction builder should use wincode::serialize, got:\n{code}"
+    );
+
+    // Should NOT have manual to_le_bytes serialization
+    assert!(
+        !code.contains("to_le_bytes"),
+        "should not have manual byte serialization"
+    );
 }
 
 // ---------------------------------------------------------------------------
