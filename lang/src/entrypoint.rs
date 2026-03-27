@@ -73,7 +73,7 @@ macro_rules! no_alloc {
             unsafe impl alloc::alloc::GlobalAlloc for NoAlloc {
                 #[inline]
                 unsafe fn alloc(&self, _: core::alloc::Layout) -> *mut u8 {
-                    panic!("");
+                    $crate::abort_program()
                 }
                 #[inline]
                 unsafe fn dealloc(&self, _: *mut u8, _: core::alloc::Layout) {}
@@ -92,8 +92,7 @@ macro_rules! panic_handler {
         #[cfg(any(target_os = "solana", target_arch = "bpf"))]
         #[panic_handler]
         fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
-            $crate::prelude::log("PANIC");
-            loop {}
+            $crate::abort_program()
         }
     };
 }

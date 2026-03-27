@@ -96,3 +96,6 @@ pub use constraint_custom_error::*;
 
 pub mod double_mut_check;
 pub use double_mut_check::*;
+
+pub mod no_disc_check;
+pub use no_disc_check::*;

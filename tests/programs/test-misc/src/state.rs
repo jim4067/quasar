@@ -42,3 +42,10 @@ pub struct TailBytesAccount<'a> {
     pub authority: Address,
     pub data: &'a [u8],
 }
+
+/// Account with no discriminator — size-only validation.
+#[account(unsafe_no_disc)]
+pub struct NoDiscAccount {
+    pub authority: Address,
+    pub value: u64,
+}

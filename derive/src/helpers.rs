@@ -168,6 +168,47 @@ impl DynFieldKind<'_> {
 // --- Discriminator argument parsing (shared by instruction, account, event,
 // program) ---
 
+/// Parsed `#[account(...)]` attribute arguments.
+///
+/// Either `discriminator = <bytes>` (standard) or `unsafe_no_disc` (no
+/// discriminator — size-only validation, like SPL Token accounts).
+pub(crate) enum AccountAttr {
+    Discriminator(Vec<LitInt>),
+    UnsafeNoDisc,
+}
+
+impl Parse for AccountAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident: Ident = input.parse()?;
+        if ident == "unsafe_no_disc" {
+            return Ok(Self::UnsafeNoDisc);
+        }
+        if ident == "discriminator" {
+            let _: Token![=] = input.parse()?;
+            if input.peek(syn::token::Bracket) {
+                let content;
+                syn::bracketed!(content in input);
+                let lits = content.parse_terminated(LitInt::parse, Token![,])?;
+                let discriminator: Vec<LitInt> = lits.into_iter().collect();
+                if discriminator.is_empty() {
+                    return Err(syn::Error::new(
+                        input.span(),
+                        "discriminator must have at least one byte",
+                    ));
+                }
+                return Ok(Self::Discriminator(discriminator));
+            } else {
+                let lit: LitInt = input.parse()?;
+                return Ok(Self::Discriminator(vec![lit]));
+            }
+        }
+        Err(syn::Error::new(
+            ident.span(),
+            "expected `discriminator` or `unsafe_no_disc`",
+        ))
+    }
+}
+
 /// Parsed `#[instruction(discriminator = ...)]` attribute arguments.
 pub(crate) struct InstructionArgs {
     pub discriminator: Vec<LitInt>,

@@ -386,8 +386,7 @@ pub(crate) fn program(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #[cfg(any(target_os = "solana", target_arch = "bpf"))]
         #[panic_handler]
         fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
-            quasar_lang::prelude::log("PANIC");
-            loop {}
+            quasar_lang::abort_program()
         }
 
         #[allow(unexpected_cfgs)]

@@ -9,23 +9,28 @@ mod fixed;
 use {
     crate::helpers::{
         classify_dynamic_string, classify_dynamic_vec, classify_tail,
-        validate_discriminator_not_zero, DynKind, InstructionArgs,
+        validate_discriminator_not_zero, AccountAttr, DynKind,
     },
     proc_macro::TokenStream,
     syn::{parse_macro_input, Data, DeriveInput, Fields},
 };
 
 pub(crate) fn account(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as InstructionArgs);
+    let args = parse_macro_input!(attr as AccountAttr);
     let input = parse_macro_input!(item as DeriveInput);
     let name = &input.ident;
-    let disc_bytes = &args.discriminator;
+
+    let (disc_bytes, unsafe_no_disc) = match args {
+        AccountAttr::UnsafeNoDisc => (vec![], true),
+        AccountAttr::Discriminator(d) => {
+            if let Err(e) = validate_discriminator_not_zero(&d) {
+                return e.to_compile_error().into();
+            }
+            (d, false)
+        }
+    };
+
     let disc_len = disc_bytes.len();
-
-    if let Err(e) = validate_discriminator_not_zero(disc_bytes) {
-        return e.to_compile_error().into();
-    }
-
     let disc_indices: Vec<usize> = (0..disc_len).collect();
 
     let fields_data = match &input.data {
@@ -68,10 +73,19 @@ pub(crate) fn account(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let has_dynamic = field_kinds.iter().any(|k| !matches!(k, DynKind::Fixed));
 
+    if unsafe_no_disc && has_dynamic {
+        return syn::Error::new_spanned(
+            name,
+            "unsafe_no_disc accounts cannot have dynamic fields (String/Vec/tail)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     if !has_dynamic {
         return fixed::generate_fixed_account(
             name,
-            disc_bytes,
+            &disc_bytes,
             disc_len,
             &disc_indices,
             fields_data,
@@ -160,7 +174,7 @@ pub(crate) fn account(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     dynamic::generate_dynamic_account(
         name,
-        disc_bytes,
+        &disc_bytes,
         disc_len,
         &disc_indices,
         fields_data,

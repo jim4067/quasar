@@ -33,6 +33,10 @@
 //! alignment checking.
 
 #![no_std]
+#![cfg_attr(
+    any(target_os = "solana", target_arch = "bpf"),
+    feature(asm_experimental_arch)
+)]
 extern crate self as quasar_lang;
 
 /// Internal re-exports for proc macro codegen. Not part of the public API.
@@ -195,6 +199,20 @@ pub fn decode_header_error(header: u32, expected: u32) -> u64 {
     #[cfg(feature = "debug")]
     solana_program_log::log("account not executable");
     u64::from(ProgramError::InvalidAccountData)
+}
+
+/// Immediately terminate the program with `ProgramError::Custom(0)`.
+///
+/// On-chain: emits two SBF instructions (`lddw r0, 0x100000000; exit`).
+/// Off-chain: panics with a descriptive message for test ergonomics.
+#[inline(always)]
+pub fn abort_program() -> ! {
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    unsafe {
+        core::arch::asm!("lddw r0, 0x100000000", "exit", options(noreturn));
+    }
+    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+    panic!("program aborted");
 }
 
 #[cfg(test)]

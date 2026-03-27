@@ -206,4 +206,14 @@ mod quasar_test_misc {
     pub fn double_mut_check(ctx: Ctx<DoubleMutCheck>) -> Result<(), ProgramError> {
         ctx.accounts.handler()
     }
+
+    #[instruction(discriminator = 42)]
+    pub fn init_no_disc(ctx: Ctx<InitNoDisc>, value: u64) -> Result<(), ProgramError> {
+        ctx.accounts.handler(value, &ctx.bumps)
+    }
+
+    #[instruction(discriminator = 43)]
+    pub fn read_no_disc(ctx: Ctx<ReadNoDisc>) -> Result<(), ProgramError> {
+        ctx.accounts.handler()
+    }
 }
