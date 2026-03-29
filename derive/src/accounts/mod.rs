@@ -4,6 +4,7 @@
 
 mod attrs;
 mod client;
+mod field_kind;
 mod fields;
 
 use {
