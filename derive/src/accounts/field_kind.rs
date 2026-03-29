@@ -197,6 +197,7 @@ pub(super) const FLAG_MASK: u32 = 0xFFFFFF00;
 /// In release: just `check_expr?;`
 ///
 /// This replaces the 8-line debug/non-debug pattern repeated ~20 times.
+#[allow(dead_code)]
 pub(super) fn debug_checked(
     field_name_str: &str,
     check_expr: proc_macro2::TokenStream,
