@@ -376,7 +376,23 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
     let init_blocks = &pf.init_blocks;
 
     let rent_fetch = if pf.needs_rent {
-        quote! { let __shared_rent = <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::get()?; }
+        if let Some(ref rent_field) = pf.rent_sysvar_field {
+            // Read Rent from the Sysvar<Rent> account — avoids sol_get_rent_sysvar syscall.
+            // SAFETY: At this point #rent_field is &mut AccountView. borrow_unchecked
+            // returns the account data; from_bytes_unchecked casts it to &Rent.
+            // The address is validated later in the normal check phase.
+            quote! {
+                let __shared_rent = unsafe {
+                    core::clone::Clone::clone(
+                        <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::from_bytes_unchecked(
+                            #rent_field.borrow_unchecked()
+                        )
+                    )
+                };
+            }
+        } else {
+            quote! { let __shared_rent = <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::get()?; }
+        }
     } else {
         quote! {}
     };

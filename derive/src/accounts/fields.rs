@@ -52,6 +52,9 @@ pub(super) struct ProcessedFields {
     pub close_fields: Vec<CloseFieldInfo>,
     pub sweep_fields: Vec<SweepFieldInfo>,
     pub needs_rent: bool,
+    /// If the struct has a `Sysvar<Rent>` field, its ident. Used to avoid
+    /// the `sol_get_rent_sysvar` syscall when a rent account is available.
+    pub rent_sysvar_field: Option<Ident>,
 }
 
 /// Extract the base name (last segment) of a type, stripping references and
@@ -309,6 +312,9 @@ struct DetectedFields<'a> {
 
     // Rent sysvar (needed by metadata/master_edition CPI)
     rent: Option<&'a Ident>,
+
+    // Sysvar<Rent> field (if present, avoids sol_get_rent_sysvar syscall for init)
+    rent_sysvar: Option<&'a Ident>,
 }
 
 impl<'a> DetectedFields<'a> {
@@ -354,6 +360,20 @@ impl<'a> DetectedFields<'a> {
 
         let rent = find_field_by_name(fields, "rent");
 
+        // Find Sysvar<Rent> field by checking Sysvar<T> where T = Rent.
+        let rent_sysvar = fields.iter().find_map(|field| {
+            let ty = match &field.ty {
+                syn::Type::Reference(r) => &*r.elem,
+                other => other,
+            };
+            if let Some(inner) = extract_generic_inner_type(ty, "Sysvar") {
+                if type_base_name(inner).as_deref() == Some("Rent") {
+                    return field.ident.as_ref();
+                }
+            }
+            None
+        });
+
         DetectedFields {
             system_program,
             token_program,
@@ -367,6 +387,7 @@ impl<'a> DetectedFields<'a> {
             mint_authority,
             update_authority,
             rent,
+            rent_sysvar,
         }
     }
 
@@ -1793,6 +1814,7 @@ pub(super) fn process_fields(
         close_fields,
         sweep_fields,
         needs_rent,
+        rent_sysvar_field: detected.rent_sysvar.cloned(),
     })
 }
 
