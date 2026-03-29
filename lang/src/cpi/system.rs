@@ -182,11 +182,13 @@ pub fn init_account(
     } else {
         // Pre-funded path: the account already has lamports (someone sent SOL
         // to the PDA address). We can't use CreateAccount (it fails if the
-        // account has a non-zero balance), so we use three separate system
-        // program instructions:
-        //   1. Transfer — top up to rent-exempt minimum (skip if already enough)
-        //   2. Allocate — set data space (must happen while system-program-owned)
-        //   3. Assign  — transfer ownership to the target program
+        // account has a non-zero balance), so we use three system CPIs:
+        //   1. Transfer  — top up to rent-exempt minimum (skip if already enough)
+        //   2. Allocate  — set data space (must be a CPI, not raw resize —
+        //                   the SVM tracks original data_len from serialization
+        //                   and rejects direct mutations on accounts that were
+        //                   not program-owned at serialization time)
+        //   3. Assign    — transfer ownership to the target program
         let required = lamports.saturating_sub(account.lamports());
         if required > 0 {
             transfer(payer, account, required).invoke()?;
