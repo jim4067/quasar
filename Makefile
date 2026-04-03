@@ -13,9 +13,9 @@ SBF_EXAMPLES := examples/vault examples/escrow examples/multisig
 # All SBF programs
 SBF_ALL := $(SBF_EXAMPLES) $(SBF_TEST_PROGRAMS)
 
-.PHONY: format format-fix clippy clippy-fix check-features check-runtime-panics \
-	check-workspace-invariants build build-sbf test bench-cu bench-tracked compare-tracked \
-	test-miri test-miri-strict test-all nightly-version
+.PHONY: format format-fix clippy clippy-fix check-features check-workspace-lints \
+	check-runtime-panics check-workspace-invariants build build-sbf test bench-cu \
+	bench-tracked compare-tracked test-miri test-miri-strict test-all nightly-version
 
 # Print the nightly toolchain version for CI
 nightly-version:
@@ -36,11 +36,76 @@ clippy-fix:
 check-features:
 	@cargo hack --feature-powerset --no-dev-deps check
 
+check-workspace-lints:
+	@missing=0; \
+	while IFS= read -r manifest; do \
+	  if ! rg -q '^\[lints\]$$' "$$manifest" || ! rg -q '^workspace = true$$' "$$manifest"; then \
+	    echo "missing workspace lint opt-in: $$manifest" >&2; \
+	    missing=1; \
+	  fi; \
+	done < <( \
+	  cargo metadata --no-deps --format-version 1 \
+	    | rg -o '"manifest_path":"[^"]+"' \
+	    | sed 's/"manifest_path":"//; s/"$$//' \
+	); \
+	if [[ "$$missing" -ne 0 ]]; then exit 1; fi
+
 check-runtime-panics:
-	@bash scripts/check-runtime-panics.sh
+	@matches="$$( \
+	  rg -n 'panic!|unreachable!|todo!|unimplemented!' \
+	    lang/src spl/src derive/src \
+	    --glob '!**/tests/**' || true \
+	)"; \
+	violations=(); \
+	while IFS= read -r entry; do \
+	  [[ -z "$$entry" ]] && continue; \
+	  code="$${entry#*:*:}"; \
+	  if [[ "$$code" =~ ^[[:space:]]*// ]]; then continue; fi; \
+	  case "$$entry" in \
+	    *'lang/src/lib.rs:'*'panic!("program aborted")'*) continue ;; \
+	    *'lang/src/dynamic.rs:'*'panic!("dynamic account field contains invalid UTF-8")'*) continue ;; \
+	  esac; \
+	  violations+=("$$entry"); \
+	done <<<"$$matches"; \
+	if (($${#violations[@]} > 0)); then \
+	  echo "unexpected panic-style macro in runtime/derive code:" >&2; \
+	  printf '  %s\n' "$${violations[@]}" >&2; \
+	  exit 1; \
+	fi
 
 check-workspace-invariants:
-	@bash scripts/check-workspace-invariants.sh
+	@check_allowed() { \
+	  local desc="$$1" pattern="$$2"; shift 2; \
+	  local allowed=("$$@") matches; \
+	  matches="$$(rg -n "$$pattern" cli/src || true)"; \
+	  while IFS= read -r entry; do \
+	    [[ -z "$$entry" ]] && continue; \
+	    local ok=0; \
+	    for prefix in "$${allowed[@]}"; do \
+	      if [[ "$$entry" == "$$prefix"* ]]; then ok=1; break; fi; \
+	    done; \
+	    if [[ "$$ok" -eq 0 ]]; then \
+	      echo "unexpected $${desc}: $$entry" >&2; \
+	      exit 1; \
+	    fi; \
+	  done <<<"$$matches"; \
+	}; \
+	for script in scripts/bench-tracked-programs.sh scripts/setup-branch-protection.sh; do \
+	  if [[ ! -x "$$script" ]]; then \
+	    echo "expected executable script: $$script" >&2; \
+	    exit 1; \
+	  fi; \
+	done; \
+	check_allowed "process::exit" 'std::process::exit|process::exit' \
+	  'cli/src/main.rs:' 'cli/src/init/banner.rs:'; \
+	check_allowed "polling watch loop sleep" \
+	  'std::thread::sleep\(std::time::Duration::from_secs\(1\)\)' \
+	  'cli/src/build_watch.rs:'; \
+	if rg -n 'split_whitespace\(' cli/src >/dev/null; then \
+	  echo "cli command parsing must not use split_whitespace()" >&2; \
+	  rg -n 'split_whitespace\(' cli/src >&2; \
+	  exit 1; \
+	fi
 
 build:
 	@cargo build
@@ -95,6 +160,9 @@ test-all:
 	@echo "Running all checks..."
 	@$(MAKE) format
 	@$(MAKE) clippy
+	@$(MAKE) check-workspace-lints
+	@$(MAKE) check-runtime-panics
+	@$(MAKE) check-workspace-invariants
 	@$(MAKE) build-sbf
 	@$(MAKE) test
 	@$(MAKE) test-miri

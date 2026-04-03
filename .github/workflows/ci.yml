@@ -79,11 +79,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Verify workspace lint opt-in
-        run: bash scripts/check-workspace-lints.sh
+        run: make check-workspace-lints
       - name: Verify workspace invariants
-        run: bash scripts/check-workspace-invariants.sh
+        run: make check-workspace-invariants
       - name: Verify runtime panic policy
-        run: bash scripts/check-runtime-panics.sh
+        run: make check-runtime-panics
 
   cargo_test:
     name: Build & Test
@@ -213,8 +213,6 @@ jobs:
 
             const base = readEnv('/tmp/base_metrics.env');
             const pr = readEnv('/tmp/pr_metrics.env');
-            const guardPassed = '${{ steps.perf_guard.outcome }}' === 'success';
-
             function delta(base, pr) {
               const d = pr - base;
               if (d === 0) return '0 ⚪';
@@ -229,9 +227,7 @@ jobs:
               return parseInt(source[key] || '0', 10);
             }
 
-            const body = `## ⚡ Tracked Benchmark Guard
-
-            Guard: ${guardPassed ? 'PASS' : 'FAIL'}
+            const body = `## Benchmark
 
             ### Vault
 
@@ -255,7 +251,7 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const existing = comments.find(c => c.body.includes('Tracked Benchmark Guard'));
+            const existing = comments.find(c => c.body.includes('## Benchmark'));
             if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
