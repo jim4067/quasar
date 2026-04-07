@@ -316,6 +316,82 @@ fn bitxor_pod() {
 }
 
 // ---------------------------------------------------------------------------
+// Bitwise assign operations
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bitand_assign_native() {
+    let mut x = PodU16::from(0xFF00u16);
+    x &= 0x0FF0u16;
+    assert_eq!(x, PodU16::from(0x0F00u16));
+}
+
+#[test]
+fn bitor_assign_native() {
+    let mut x = PodU16::from(0x00F0u16);
+    x |= 0x0F00u16;
+    assert_eq!(x, PodU16::from(0x0FF0u16));
+}
+
+#[test]
+fn bitxor_assign_native() {
+    let mut x = PodU16::from(0xFFFFu16);
+    x ^= 0xFF00u16;
+    assert_eq!(x, PodU16::from(0x00FFu16));
+}
+
+#[test]
+fn bitand_assign_pod() {
+    let mut x = PodU64::from(0xFF00u64);
+    x &= PodU64::from(0x0FF0u64);
+    assert_eq!(x, PodU64::from(0x0F00u64));
+}
+
+#[test]
+fn bitor_assign_pod() {
+    let mut x = PodU64::from(0x00F0u64);
+    x |= PodU64::from(0x0F00u64);
+    assert_eq!(x, PodU64::from(0x0FF0u64));
+}
+
+#[test]
+fn bitxor_assign_pod() {
+    let mut x = PodU64::from(0xFFFFu64);
+    x ^= PodU64::from(0xFF00u64);
+    assert_eq!(x, PodU64::from(0x00FFu64));
+}
+
+#[test]
+fn shl_assign() {
+    let mut x = PodU64::from(1u64);
+    x <<= 4;
+    assert_eq!(x, PodU64::from(16u64));
+}
+
+#[test]
+fn shr_assign() {
+    let mut x = PodU64::from(16u64);
+    x >>= 4;
+    assert_eq!(x, PodU64::from(1u64));
+}
+
+#[test]
+fn bitmap_set_clear_pattern() {
+    // Mirrors the approval bitmap pattern from real usage
+    let mut bitmap = PodU16::from(0u16);
+    let idx: u8 = 3;
+    let mask = 1u16 << idx;
+
+    // Set bit
+    bitmap |= mask;
+    assert_eq!(bitmap, PodU16::from(0b1000u16));
+
+    // Clear bit
+    bitmap &= !mask;
+    assert_eq!(bitmap, PodU16::from(0u16));
+}
+
+// ---------------------------------------------------------------------------
 // PodBool edge cases
 // ---------------------------------------------------------------------------
 

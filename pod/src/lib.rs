@@ -447,6 +447,68 @@ macro_rules! define_pod_arithmetic {
             }
         }
 
+        // --- Bitwise assign with native ---
+
+        impl core::ops::BitAndAssign<$native> for $name {
+            #[inline(always)]
+            fn bitand_assign(&mut self, rhs: $native) {
+                *self = *self & rhs;
+            }
+        }
+
+        impl core::ops::BitOrAssign<$native> for $name {
+            #[inline(always)]
+            fn bitor_assign(&mut self, rhs: $native) {
+                *self = *self | rhs;
+            }
+        }
+
+        impl core::ops::BitXorAssign<$native> for $name {
+            #[inline(always)]
+            fn bitxor_assign(&mut self, rhs: $native) {
+                *self = *self ^ rhs;
+            }
+        }
+
+        // --- Bitwise assign with Pod ---
+
+        impl core::ops::BitAndAssign for $name {
+            #[inline(always)]
+            fn bitand_assign(&mut self, rhs: Self) {
+                *self = *self & rhs;
+            }
+        }
+
+        impl core::ops::BitOrAssign for $name {
+            #[inline(always)]
+            fn bitor_assign(&mut self, rhs: Self) {
+                *self = *self | rhs;
+            }
+        }
+
+        impl core::ops::BitXorAssign for $name {
+            #[inline(always)]
+            fn bitxor_assign(&mut self, rhs: Self) {
+                *self = *self ^ rhs;
+            }
+        }
+
+        // --- Shift assign ---
+
+        impl core::ops::ShlAssign<u32> for $name {
+            #[inline(always)]
+            fn shl_assign(&mut self, rhs: u32) {
+                *self = *self << rhs;
+            }
+        }
+
+        impl core::ops::ShrAssign<u32> for $name {
+            #[inline(always)]
+            fn shr_assign(&mut self, rhs: u32) {
+                *self = *self >> rhs;
+            }
+        }
+
         impl core::ops::Shl<u32> for $name {
             type Output = Self;
             #[inline(always)]
