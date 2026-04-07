@@ -58,7 +58,8 @@ impl<'info> Take<'info> {
 
         self.token_program
             .close_account(self.vault_ta_a, self.taker, self.escrow)
-            .invoke_signed(&seeds)
+            .invoke_signed(&seeds)?;
+        Ok(())
     }
 
     #[inline(always)]

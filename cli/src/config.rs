@@ -40,15 +40,15 @@ pub struct TestingConfig {
 #[derive(Debug, Deserialize)]
 pub struct RustTestingConfig {
     pub framework: String,
-    pub test: String,
+    pub test: CommandSpec,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct TypeScriptTestingConfig {
     pub framework: String,
     pub sdk: String,
-    pub install: String,
-    pub test: String,
+    pub install: CommandSpec,
+    pub test: CommandSpec,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,48 +63,27 @@ impl QuasarConfig {
 
     pub fn load_from(path: &Path) -> Result<Self, CliError> {
         if !path.exists() {
-            use crate::style;
-            eprintln!(
-                "\n  {}",
-                style::fail(&format!("{} not found.", path.display()))
-            );
-            eprintln!();
-            eprintln!("  Are you in a Quasar project directory?");
-            eprintln!(
-                "  Run {} to create a new project.",
-                style::bold("quasar init")
-            );
-            eprintln!();
-            std::process::exit(1);
+            return Err(CliError::message(format!(
+                "{} not found.\n\n  Are you in a Quasar project directory?\n  Run quasar init to \
+                 create a new project.",
+                path.display()
+            )));
         }
-        let contents = std::fs::read_to_string(path).map_err(|e| {
-            eprintln!(
-                "\n  {}",
-                crate::style::fail(&format!("Failed to read {}: {e}", path.display()))
-            );
-            e
-        })?;
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| CliError::message(format!("failed to read {}: {e}", path.display())))?;
         let config: QuasarConfig = toml::from_str(&contents).map_err(|e| {
             // Check if this looks like an old-format config (pre-init-rework)
             if contents.contains("[testing]\nframework")
                 || contents.contains("[testing]\r\nframework")
                 || (contents.contains("[testing]") && !contents.contains("language"))
             {
-                eprintln!(
-                    "\n  {}",
-                    crate::style::fail("Quasar.toml uses an outdated format.")
-                );
-                eprintln!(
-                    "  Run {} and re-init your project.",
-                    crate::style::bold("quasar config reset")
-                );
+                CliError::message(
+                    "Quasar.toml uses an outdated format.\n\n  Run quasar config reset and \
+                     re-init your project.",
+                )
             } else {
-                eprintln!(
-                    "\n  {}",
-                    crate::style::fail(&format!("Invalid {}: {e}", path.display()))
-                );
+                CliError::message(format!("invalid {}: {e}", path.display()))
             }
-            e
         })?;
         Ok(config)
     }
@@ -137,6 +116,93 @@ impl QuasarConfig {
                 langs
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "RawCommandSpec", into = "RawCommandSpec")]
+pub struct CommandSpec {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+impl CommandSpec {
+    pub fn new(
+        program: impl Into<String>,
+        args: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            program: program.into(),
+            args: args.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn display(&self) -> String {
+        let mut parts = Vec::with_capacity(self.args.len() + 1);
+        parts.push(self.program.clone());
+        parts.extend(self.args.iter().cloned());
+        shlex::try_join(parts.iter().map(String::as_str)).unwrap_or_else(|_| self.program.clone())
+    }
+
+    pub fn parse(command: &str) -> Result<Self, CliError> {
+        let Some(parts) = shlex::split(command) else {
+            return Err(CliError::message(format!(
+                "invalid command syntax: {command}"
+            )));
+        };
+        Self::from_parts(parts).map_err(CliError::message)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+enum RawCommandSpec {
+    String(String),
+    Args(Vec<String>),
+    Structured {
+        program: String,
+        #[serde(default)]
+        args: Vec<String>,
+    },
+}
+
+impl TryFrom<RawCommandSpec> for CommandSpec {
+    type Error = String;
+
+    fn try_from(value: RawCommandSpec) -> Result<Self, Self::Error> {
+        match value {
+            RawCommandSpec::String(command) => Self::parse(&command).map_err(|e| e.to_string()),
+            RawCommandSpec::Args(parts) => Self::from_parts(parts),
+            RawCommandSpec::Structured { program, args } => {
+                if program.trim().is_empty() {
+                    return Err("command program cannot be empty".to_string());
+                }
+                Ok(Self { program, args })
+            }
+        }
+    }
+}
+
+impl From<CommandSpec> for RawCommandSpec {
+    fn from(value: CommandSpec) -> Self {
+        Self::Structured {
+            program: value.program,
+            args: value.args,
+        }
+    }
+}
+
+impl CommandSpec {
+    fn from_parts(parts: Vec<String>) -> Result<Self, String> {
+        let mut parts = parts.into_iter();
+        let Some(program) = parts.next() else {
+            return Err("command cannot be empty".to_string());
+        };
+        Ok(Self {
+            program,
+            args: parts.collect(),
+        })
     }
 }
 
@@ -194,13 +260,16 @@ impl GlobalConfig {
             .join("config.toml")
     }
 
-    pub fn load() -> Self {
+    pub fn load() -> Result<Self, CliError> {
         let path = Self::path();
         if path.exists() {
-            let contents = std::fs::read_to_string(&path).unwrap_or_default();
-            toml::from_str(&contents).unwrap_or_default()
+            let contents = std::fs::read_to_string(&path).map_err(|e| {
+                CliError::message(format!("failed to read {}: {e}", path.display()))
+            })?;
+            toml::from_str(&contents)
+                .map_err(|e| CliError::message(format!("invalid {}: {e}", path.display())))
         } else {
-            Self::default()
+            Ok(Self::default())
         }
     }
 
@@ -214,8 +283,8 @@ impl GlobalConfig {
         Ok(())
     }
 
-    pub fn load_from_str(s: &str) -> Self {
-        toml::from_str(s).unwrap_or_default()
+    pub fn load_from_str(s: &str) -> Result<Self, CliError> {
+        toml::from_str(s).map_err(CliError::from)
     }
 
     pub fn to_toml(&self) -> String {
@@ -243,13 +312,13 @@ mod tests {
             ..GlobalConfig::default()
         };
         let toml_str = config.to_toml();
-        let loaded = GlobalConfig::load_from_str(&toml_str);
+        let loaded = GlobalConfig::load_from_str(&toml_str).unwrap();
         assert!(!loaded.ui.animation);
     }
 
     #[test]
     fn empty_config_defaults_animation_true() {
-        let loaded = GlobalConfig::load_from_str("");
+        let loaded = GlobalConfig::load_from_str("").unwrap();
         assert!(loaded.ui.animation);
     }
 
@@ -275,9 +344,68 @@ mod tests {
             },
         };
         let toml_str = saved.to_toml();
-        let reloaded = GlobalConfig::load_from_str(&toml_str);
+        let reloaded = GlobalConfig::load_from_str(&toml_str).unwrap();
         assert!(!reloaded.ui.animation);
         assert_eq!(reloaded.defaults.toolchain.as_deref(), Some("solana"));
         assert_eq!(reloaded.defaults.git.as_deref(), Some("commit"));
+    }
+
+    #[test]
+    fn command_spec_deserializes_legacy_string() {
+        let config: QuasarConfig = toml::from_str(
+            r#"
+            [project]
+            name = "demo"
+
+            [toolchain]
+            type = "solana"
+
+            [testing]
+            language = "rust"
+
+            [testing.rust]
+            framework = "quasar-svm"
+            test = "cargo test tests::"
+            "#,
+        )
+        .unwrap();
+
+        let test = &config.testing.rust.unwrap().test;
+        assert_eq!(test.program, "cargo");
+        assert_eq!(test.args, vec!["test", "tests::"]);
+    }
+
+    #[test]
+    fn command_spec_deserializes_structured_command() {
+        let config: QuasarConfig = toml::from_str(
+            r#"
+            [project]
+            name = "demo"
+
+            [toolchain]
+            type = "solana"
+
+            [testing]
+            language = "typescript"
+
+            [testing.typescript]
+            framework = "quasar-svm"
+            sdk = "kit"
+            install = { program = "pnpm", args = ["install", "--frozen-lockfile"] }
+            test = ["pnpm", "vitest", "run"]
+            "#,
+        )
+        .unwrap();
+
+        let ts = config.testing.typescript.unwrap();
+        assert_eq!(ts.install.program, "pnpm");
+        assert_eq!(ts.install.args, vec!["install", "--frozen-lockfile"]);
+        assert_eq!(ts.test.program, "pnpm");
+        assert_eq!(ts.test.args, vec!["vitest", "run"]);
+    }
+
+    #[test]
+    fn invalid_global_config_is_not_silently_ignored() {
+        assert!(GlobalConfig::load_from_str("ui = ").is_err());
     }
 }

@@ -1,7 +1,15 @@
 use clap::Parser;
 
 fn main() {
-    let globals = quasar_cli::config::GlobalConfig::load();
+    quasar_cli::style::init(true);
+
+    let globals = match quasar_cli::config::GlobalConfig::load() {
+        Ok(globals) => globals,
+        Err(e) => {
+            eprintln!("\n  {} {e}", quasar_cli::style::fail(""));
+            std::process::exit(e.exit_code());
+        }
+    };
     quasar_cli::style::init(globals.ui.color);
 
     // Intercept top-level help before clap — lets subcommand --help work normally
@@ -15,6 +23,6 @@ fn main() {
     let cli = quasar_cli::Cli::parse();
     if let Err(e) = quasar_cli::run(cli) {
         eprintln!("\n  {} {e}", quasar_cli::style::fail(""));
-        std::process::exit(1);
+        std::process::exit(e.exit_code());
     }
 }

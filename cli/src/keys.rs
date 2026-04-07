@@ -1,5 +1,9 @@
 use {
-    crate::{config::QuasarConfig, error::CliResult, style},
+    crate::{
+        config::QuasarConfig,
+        error::{CliError, CliResult},
+        style,
+    },
     std::{
         fs,
         path::{Path, PathBuf},
@@ -63,13 +67,10 @@ pub fn list() -> CliResult {
     let path = keypair_path(&config);
 
     if !path.exists() {
-        eprintln!(
-            "  {} keypair not found: {}",
-            style::fail(""),
+        return Err(CliError::message(format!(
+            "keypair not found: {}\n  Run quasar keys new first.",
             path.display()
-        );
-        eprintln!("    Run {} first.", style::bold("quasar keys new"));
-        std::process::exit(1);
+        )));
     }
 
     let id = read_program_id(&path)?;
@@ -83,23 +84,17 @@ pub fn sync() -> CliResult {
     let path = keypair_path(&config);
 
     if !path.exists() {
-        eprintln!(
-            "  {} keypair not found: {}",
-            style::fail(""),
+        return Err(CliError::message(format!(
+            "keypair not found: {}\n  Run quasar keys new first.",
             path.display()
-        );
-        eprintln!("    Run {} first.", style::bold("quasar keys new"));
-        std::process::exit(1);
+        )));
     }
 
     let keypair_id = read_program_id(&path)?;
 
     let current_id = match current_program_id() {
         Some(id) => id,
-        None => {
-            eprintln!("  {}", style::fail("declare_id!() not found in src/lib.rs"));
-            std::process::exit(1);
-        }
+        None => return Err(CliError::message("declare_id!() not found in src/lib.rs")),
     };
 
     if current_id == keypair_id {
@@ -127,21 +122,11 @@ pub fn new(force: bool) -> CliResult {
     let path = keypair_path(&config);
 
     if path.exists() && !force {
-        eprintln!(
-            "  {} keypair already exists: {}",
-            style::fail(""),
+        return Err(CliError::message(format!(
+            "keypair already exists: {}\n\n  Use quasar keys new --force to overwrite it.\n  \
+             Warning: this will change your program address.",
             path.display()
-        );
-        eprintln!();
-        eprintln!(
-            "  Use {} to overwrite it.",
-            style::bold("quasar keys new --force")
-        );
-        eprintln!(
-            "  {}",
-            style::dim("Warning: this will change your program address.")
-        );
-        std::process::exit(1);
+        )));
     }
 
     if let Some(parent) = path.parent() {

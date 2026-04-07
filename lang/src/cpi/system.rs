@@ -199,7 +199,8 @@ pub fn init_account(
             transfer(payer, account, required).invoke()?;
         }
         allocate(account, space).invoke_with_signers(signers)?;
-        assign(account, owner).invoke_with_signers(signers)
+        assign(account, owner).invoke_with_signers(signers)?;
+        Ok(())
     }
 }
 

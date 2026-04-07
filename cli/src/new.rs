@@ -1,5 +1,8 @@
 use {
-    crate::{error::CliResult, style, utils},
+    crate::{
+        error::{CliError, CliResult},
+        style, utils,
+    },
     std::{fs, path::Path},
 };
 
@@ -12,26 +15,19 @@ pub fn run_instruction(name: &str) -> CliResult {
         || snake.starts_with(|c: char| c.is_ascii_digit())
         || !snake.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
-        eprintln!(
-            "  {}",
-            style::fail(&format!("invalid instruction name: \"{name}\""))
-        );
-        eprintln!(
-            "  {}",
-            style::dim("must be a valid Rust identifier (e.g. transfer, create_pool)")
-        );
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "invalid instruction name: \"{name}\"\n  must be a valid Rust identifier (e.g. \
+             transfer, create_pool)"
+        )));
     }
 
     let instructions_dir = Path::new("src").join("instructions");
     let lib_path = Path::new("src").join("lib.rs");
 
     if !lib_path.exists() {
-        eprintln!(
-            "  {}",
-            style::fail("src/lib.rs not found — are you in a Quasar project?")
-        );
-        std::process::exit(1);
+        return Err(CliError::message(
+            "src/lib.rs not found — are you in a Quasar project?",
+        ));
     }
 
     // Create instructions directory if it doesn't exist (minimal template)
@@ -60,11 +56,9 @@ pub fn run_instruction(name: &str) -> CliResult {
 
     let file_path = instructions_dir.join(format!("{snake}.rs"));
     if file_path.exists() {
-        eprintln!(
-            "  {}",
-            style::fail(&format!("src/instructions/{snake}.rs already exists"))
-        );
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "src/instructions/{snake}.rs already exists"
+        )));
     }
 
     // Write the instruction file
@@ -198,15 +192,10 @@ pub fn run_state(name: &str) -> CliResult {
         || snake.starts_with(|c: char| c.is_ascii_digit())
         || !snake.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
-        eprintln!(
-            "  {}",
-            style::fail(&format!("invalid state name: \"{name}\""))
-        );
-        eprintln!(
-            "  {}",
-            style::dim("must be a valid Rust identifier (e.g. vault, user_profile)")
-        );
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "invalid state name: \"{name}\"\n  must be a valid Rust identifier (e.g. vault, \
+             user_profile)"
+        )));
     }
 
     let pascal = utils::snake_to_pascal(&snake);
@@ -270,15 +259,10 @@ pub fn run_error(name: &str) -> CliResult {
         || snake.starts_with(|c: char| c.is_ascii_digit())
         || !snake.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
-        eprintln!(
-            "  {}",
-            style::fail(&format!("invalid error name: \"{name}\""))
-        );
-        eprintln!(
-            "  {}",
-            style::dim("must be a valid Rust identifier (e.g. vault_error, access_error)")
-        );
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "invalid error name: \"{name}\"\n  must be a valid Rust identifier (e.g. vault_error, \
+             access_error)"
+        )));
     }
 
     let pascal = utils::snake_to_pascal(&snake);

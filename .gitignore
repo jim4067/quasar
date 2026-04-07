@@ -5,6 +5,7 @@
 .claude
 .codex
 .factory
+docs/
 
 AGENTS.md
 CLAUDE.md

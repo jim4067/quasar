@@ -1,5 +1,19 @@
+#[path = "build_diagnostics.rs"]
+mod diagnostics;
+#[path = "build_lockfile.rs"]
+mod lockfile;
+#[path = "build_watch.rs"]
+mod watch;
+
+pub(crate) use watch::watch_loop;
 use {
-    crate::{config::QuasarConfig, error::CliResult, style, toolchain, utils},
+    crate::{
+        config::QuasarConfig,
+        error::{CliError, CliResult},
+        style, toolchain, utils,
+    },
+    diagnostics::{extract_warnings, format_build_errors},
+    lockfile::{ensure_lockfile, missing_sbpf_linker, read_target_rustflags},
     std::{
         fs,
         path::{Path, PathBuf},
@@ -10,7 +24,7 @@ use {
 
 pub fn run(debug: bool, watch: bool, features: Option<String>) -> CliResult {
     if watch {
-        return run_watch(debug, features);
+        run_watch(debug, features);
     }
 
     run_once(debug, features.as_deref())
@@ -27,7 +41,7 @@ fn run_once(debug: bool, features: Option<&str>) -> CliResult {
     let sp = style::spinner("Building...");
 
     if config.is_solana_toolchain() {
-        ensure_lockfile(&sp);
+        ensure_lockfile(&sp)?;
     }
 
     let output = if config.is_solana_toolchain() {
@@ -43,16 +57,7 @@ fn run_once(debug: bool, features: Option<&str>) -> CliResult {
     } else {
         if !toolchain::has_sbpf_linker() {
             sp.finish_and_clear();
-            eprintln!("\n  {}", style::fail("sbpf-linker not found on PATH."));
-            eprintln!();
-            eprintln!("  Install platform-tools first:");
-            eprintln!(
-                "    {}",
-                style::bold("git clone https://github.com/anza-xyz/platform-tools")
-            );
-            eprintln!("    {}", style::bold("cd platform-tools"));
-            eprintln!("    {}", style::bold("cargo install-with-gallery"));
-            std::process::exit(1);
+            return Err(missing_sbpf_linker());
         }
 
         let mut cmd = Command::new("cargo");
@@ -126,16 +131,14 @@ fn run_once(debug: bool, features: Option<&str>) -> CliResult {
         Ok(o) => {
             let elapsed = start.elapsed();
             let stderr = String::from_utf8_lossy(&o.stderr);
-            print_build_errors(&stderr, elapsed);
-            std::process::exit(o.status.code().unwrap_or(1));
+            Err(CliError::process_failure(
+                format_build_errors(&stderr, elapsed),
+                o.status.code().unwrap_or(1),
+            ))
         }
-        Err(e) => {
-            eprintln!(
-                "  {}",
-                style::fail(&format!("failed to run build command: {e}"))
-            );
-            std::process::exit(1);
-        }
+        Err(e) => Err(CliError::message(format!(
+            "failed to run build command: {e}"
+        ))),
     }
 }
 
@@ -152,7 +155,7 @@ pub fn profile_build() -> Result<PathBuf, crate::error::CliError> {
     let sp = style::spinner("Profile build...");
 
     if config.is_solana_toolchain() {
-        ensure_lockfile(&sp);
+        ensure_lockfile(&sp)?;
     }
 
     let output = if config.is_solana_toolchain() {
@@ -162,16 +165,7 @@ pub fn profile_build() -> Result<PathBuf, crate::error::CliError> {
     } else {
         if !toolchain::has_sbpf_linker() {
             sp.finish_and_clear();
-            eprintln!("\n  {}", style::fail("sbpf-linker not found on PATH."));
-            eprintln!();
-            eprintln!("  Install platform-tools first:");
-            eprintln!(
-                "    {}",
-                style::bold("git clone https://github.com/anza-xyz/platform-tools")
-            );
-            eprintln!("    {}", style::bold("cd platform-tools"));
-            eprintln!("    {}", style::bold("cargo install-with-gallery"));
-            std::process::exit(1);
+            return Err(missing_sbpf_linker());
         }
 
         // Read existing rustflags from .cargo/config.toml and append debug flags
@@ -242,153 +236,19 @@ pub fn profile_build() -> Result<PathBuf, crate::error::CliError> {
         Ok(o) => {
             let elapsed = start.elapsed();
             let stderr = String::from_utf8_lossy(&o.stderr);
-            print_build_errors(&stderr, elapsed);
-            std::process::exit(o.status.code().unwrap_or(1));
-        }
-        Err(e) => {
-            eprintln!(
-                "  {}",
-                style::fail(&format!("failed to run build command: {e}"))
-            );
-            std::process::exit(1);
-        }
-    }
-}
-
-fn run_watch(debug: bool, features: Option<String>) -> CliResult {
-    if let Err(e) = run_once(debug, features.as_deref()) {
-        eprintln!("  {}", style::fail(&format!("{e}")));
-    }
-
-    loop {
-        let baseline = collect_mtimes(Path::new("src"));
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let current = collect_mtimes(Path::new("src"));
-            if current != baseline {
-                if let Err(e) = run_once(debug, features.as_deref()) {
-                    eprintln!("  {}", style::fail(&format!("{e}")));
-                }
-                break;
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Build error formatting
-// ---------------------------------------------------------------------------
-
-/// Extract warning lines from cargo output (for display on success).
-fn extract_warnings(stderr: &str) -> Vec<String> {
-    let mut warnings = Vec::new();
-    let mut capture = false;
-
-    for line in stderr.lines() {
-        if line.starts_with("warning") {
-            if line.contains("warnings emitted")
-                || line.contains("warning emitted")
-                || line.contains("user-defined alias")
-                || line.contains("shadowing")
-            {
-                continue;
-            }
-            capture = true;
-            warnings.push(line.to_string());
-        } else if capture {
-            if line.starts_with("  ") || line.starts_with(" -->") || line.is_empty() {
-                warnings.push(line.to_string());
-            } else {
-                capture = false;
-            }
-        }
-    }
-
-    warnings
-}
-
-/// Extract and display only the meaningful error/warning lines from cargo
-/// output.
-fn print_build_errors(stderr: &str, elapsed: std::time::Duration) {
-    let mut errors: Vec<String> = Vec::new();
-    let mut capture = false;
-
-    for line in stderr.lines() {
-        // Primary error/warning lines from rustc or cargo
-        if line.starts_with("error") || line.starts_with("warning") {
-            // Skip "warning: N warnings emitted" summary lines
-            if line.contains("warnings emitted") || line.contains("warning emitted") {
-                continue;
-            }
-            // Skip the cargo alias shadow warning
-            if line.contains("user-defined alias") || line.contains("shadowing") {
-                continue;
-            }
-            capture = true;
-            errors.push(line.to_string());
-        } else if capture {
-            // Capture continuation lines (source snippets, arrows, notes, "Caused by:")
-            if line.starts_with("  ")
-                || line.starts_with(" -->")
-                || line.starts_with("Caused by:")
-                || line.is_empty()
-            {
-                errors.push(line.to_string());
-            } else {
-                capture = false;
-            }
-        }
-    }
-
-    if errors.is_empty() {
-        // Fallback: show raw stderr if we couldn't parse errors
-        if !stderr.is_empty() {
-            eprint!("{stderr}");
-        }
-        eprintln!(
-            "  {}",
-            style::fail(&format!(
-                "build failed in {}",
-                style::bold(&style::human_duration(elapsed))
+            Err(CliError::process_failure(
+                format_build_errors(&stderr, elapsed),
+                o.status.code().unwrap_or(1),
             ))
-        );
-        return;
-    }
-
-    eprintln!();
-    for line in &errors {
-        eprintln!("  {line}");
-    }
-    eprintln!();
-
-    // Count errors vs warnings
-    let err_count = errors.iter().filter(|l| l.starts_with("error")).count();
-    let warn_count = errors.iter().filter(|l| l.starts_with("warning")).count();
-
-    let mut summary = String::new();
-    if err_count > 0 {
-        summary.push_str(&format!(
-            "{err_count} error{}",
-            if err_count == 1 { "" } else { "s" }
-        ));
-    }
-    if warn_count > 0 {
-        if !summary.is_empty() {
-            summary.push_str(", ");
         }
-        summary.push_str(&format!(
-            "{warn_count} warning{}",
-            if warn_count == 1 { "" } else { "s" }
-        ));
+        Err(e) => Err(CliError::message(format!(
+            "failed to run build command: {e}"
+        ))),
     }
+}
 
-    eprintln!(
-        "  {}",
-        style::fail(&format!(
-            "build failed in {} ({summary})",
-            style::bold(&style::human_duration(elapsed))
-        ))
-    );
+fn run_watch(debug: bool, features: Option<String>) -> ! {
+    watch_loop(|| run_once(debug, features.as_deref()))
 }
 
 // ---------------------------------------------------------------------------
@@ -444,126 +304,4 @@ fn save_last_size(so_path: &Path, size: u64) {
         .collect();
     lines.push(entry);
     let _ = fs::write(LAST_SIZE_FILE, lines.join("\n"));
-}
-
-/// Read rustflags from .cargo/config.toml for the bpfel-unknown-none target.
-fn read_target_rustflags() -> Vec<String> {
-    let config_path = Path::new(".cargo").join("config.toml");
-    let contents = match fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
-    let value: toml::Value = match contents.parse() {
-        Ok(v) => v,
-        Err(_) => return vec![],
-    };
-    value
-        .get("target")
-        .and_then(|t| t.get("bpfel-unknown-none"))
-        .and_then(|t| t.get("rustflags"))
-        .and_then(|f| f.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Ensure `Cargo.lock` is present and in sync with `Cargo.toml`, using the
-/// system cargo for resolution.
-///
-/// The Solana toolchain bundles an older cargo (currently 1.84) that cannot
-/// parse crate manifests using `edition = "2024"`.  By keeping the lockfile
-/// current via the system cargo, `cargo build-sbf` never needs to resolve
-/// dependencies itself — it just reads the existing lockfile.
-///
-/// Skips the work when the lockfile already exists and is newer than
-/// `Cargo.toml`.
-fn ensure_lockfile(sp: &indicatif::ProgressBar) {
-    let lock_exists = Path::new("Cargo.lock").exists();
-
-    let needs_refresh = if lock_exists {
-        // Refresh when Cargo.toml has been modified after Cargo.lock
-        fs::metadata("Cargo.toml")
-            .and_then(|m| m.modified())
-            .ok()
-            .zip(fs::metadata("Cargo.lock").and_then(|m| m.modified()).ok())
-            .is_some_and(|(toml_t, lock_t)| toml_t > lock_t)
-    } else {
-        true
-    };
-
-    if !needs_refresh {
-        return;
-    }
-
-    let result = Command::new("cargo")
-        .args(["generate-lockfile", "--quiet"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output();
-
-    let failed = match result {
-        Ok(o) if o.status.success() => return,
-        Ok(o) => Some(String::from_utf8_lossy(&o.stderr).to_string()),
-        Err(e) => Some(e.to_string()),
-    };
-
-    // If there is no lockfile at all, the build will certainly fail with a
-    // confusing edition-related error from Solana's cargo.  Bail early with
-    // a clear diagnostic instead.
-    if !lock_exists {
-        sp.finish_and_clear();
-        eprintln!();
-        eprintln!("  {}", style::fail("failed to generate Cargo.lock"));
-        if let Some(msg) = &failed {
-            let trimmed = msg.trim();
-            if !trimmed.is_empty() {
-                for line in trimmed.lines() {
-                    eprintln!("  {}", style::dim(line));
-                }
-            }
-        }
-        eprintln!();
-        eprintln!(
-            "  {}",
-            style::dim("The Solana toolchain bundles an older cargo that cannot resolve")
-        );
-        eprintln!(
-            "  {}",
-            style::dim("some newer crate versions. Ensure your system cargo is up to date:")
-        );
-        eprintln!("    {}", style::bold("rustup update"));
-        eprintln!();
-        std::process::exit(1);
-    }
-
-    // Lockfile exists but is stale — warn and let build-sbf try with what
-    // we have.  It will often still work if the change didn't pull in an
-    // incompatible crate.
-    eprintln!(
-        "  {}",
-        style::dim("warning: could not refresh Cargo.lock — building with existing lockfile")
-    );
-}
-
-pub fn collect_mtimes(dir: &Path) -> Vec<(PathBuf, std::time::SystemTime)> {
-    let mut times = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                times.extend(collect_mtimes(&path));
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                if let Ok(meta) = fs::metadata(&path) {
-                    if let Ok(mtime) = meta.modified() {
-                        times.push((path, mtime));
-                    }
-                }
-            }
-        }
-    }
-    times.sort_by(|a, b| a.0.cmp(&b.0));
-    times
 }

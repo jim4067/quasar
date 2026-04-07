@@ -5,12 +5,12 @@ use {
 
 #[derive(Accounts)]
 pub struct CloseTokenAccountT22<'info> {
-    pub authority: &'info Signer,
     pub account: &'info mut Account<Token2022>,
-    /// CHECK: destination may equal authority when the signer is closing to
+    pub destination: &'info mut Signer,
+    /// CHECK: authority may equal destination when the signer is closing to
     /// themselves.
     #[account(dup)]
-    pub destination: &'info mut Signer,
+    pub authority: &'info Signer,
     pub token_program: &'info Program<Token2022>,
 }
 

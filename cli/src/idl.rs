@@ -1,5 +1,8 @@
 use {
-    crate::{error::CliResult, IdlCommand},
+    crate::{
+        error::{CliError, CliResult},
+        IdlCommand,
+    },
     quasar_idl::{codegen, parser, types::Idl},
     std::path::{Path, PathBuf},
 };
@@ -53,8 +56,10 @@ fn generate_idl(crate_path: &Path) -> Result<Idl, anyhow::Error> {
 pub fn run(command: IdlCommand) -> CliResult {
     let crate_path = &command.crate_path;
     if !crate_path.exists() {
-        eprintln!("Error: path does not exist: {}", crate_path.display());
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "path does not exist: {}",
+            crate_path.display()
+        )));
     }
 
     generate_idl(crate_path)?;

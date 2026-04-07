@@ -1,10 +1,14 @@
 use {
-    crate::{config::GlobalConfig, error::CliResult, style, ConfigAction},
+    crate::{
+        config::GlobalConfig,
+        error::{CliError, CliResult},
+        style, ConfigAction,
+    },
     dialoguer::{theme::ColorfulTheme, Select},
 };
 
 pub fn run(action: Option<ConfigAction>) -> CliResult {
-    let mut config = GlobalConfig::load();
+    let mut config = GlobalConfig::load()?;
 
     match action {
         // No subcommand: interactive menu
@@ -13,23 +17,20 @@ pub fn run(action: Option<ConfigAction>) -> CliResult {
             let val = get_value(&config, &key);
             match val {
                 Some(v) => println!("{v}"),
-                None => unknown_key(&key),
+                None => return Err(unknown_key(&key)),
             }
         }
         Some(ConfigAction::Set { key, value }) => {
             if let Err(valid) = validate_value(&key, &value) {
-                eprintln!(
-                    "  {}",
-                    style::fail(&format!("invalid value for {key}: {value}"))
-                );
-                eprintln!("  {}", style::dim(&format!("valid: {valid}")));
-                std::process::exit(1);
+                return Err(CliError::message(format!(
+                    "invalid value for {key}: {value}\n  valid: {valid}"
+                )));
             }
             if set_value(&mut config, &key, &value) {
                 config.save()?;
                 println!("  {}", style::success(&format!("{key} = {value}")));
             } else {
-                unknown_key(&key);
+                return Err(unknown_key(&key));
             }
         }
         Some(ConfigAction::List) => print_all(&config),
@@ -50,14 +51,12 @@ pub fn run(action: Option<ConfigAction>) -> CliResult {
     Ok(())
 }
 
-fn unknown_key(key: &str) -> ! {
-    eprintln!("  {}", style::fail(&format!("unknown config key: {key}")));
-    eprintln!();
-    eprintln!("  Available keys:");
-    eprintln!("    defaults.toolchain, defaults.test_language, defaults.rust_framework,");
-    eprintln!("    defaults.ts_sdk, defaults.template, defaults.git");
-    eprintln!("    ui.animation, ui.color");
-    std::process::exit(1);
+fn unknown_key(key: &str) -> CliError {
+    CliError::message(format!(
+        "unknown config key: {key}\n\n  Available keys:\n    defaults.toolchain, \
+         defaults.test_language, defaults.rust_framework,\n    defaults.ts_sdk, \
+         defaults.template, defaults.git\n    ui.animation, ui.color"
+    ))
 }
 
 fn print_all(config: &GlobalConfig) {

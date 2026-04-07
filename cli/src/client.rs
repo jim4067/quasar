@@ -1,5 +1,8 @@
 use {
-    crate::{error::CliResult, style, ClientCommand},
+    crate::{
+        error::{CliError, CliResult},
+        style, ClientCommand,
+    },
     quasar_idl::codegen,
     std::path::PathBuf,
 };
@@ -12,11 +15,10 @@ pub fn run(command: ClientCommand) -> CliResult {
     let idl_path = &command.idl_path;
 
     if !idl_path.exists() {
-        eprintln!(
-            "  {}",
-            style::fail(&format!("IDL file not found: {}", idl_path.display()))
-        );
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "IDL file not found: {}",
+            idl_path.display()
+        )));
     }
 
     let json = std::fs::read_to_string(idl_path)
@@ -31,20 +33,14 @@ pub fn run(command: ClientCommand) -> CliResult {
             .lang
             .iter()
             .map(|s| match s.as_str() {
-                "ts" | "typescript" => "typescript",
-                "py" | "python" => "python",
-                "go" | "golang" => "golang",
-                other => {
-                    eprintln!(
-                        "  {}",
-                        style::fail(&format!(
-                            "unknown language: '{other}'. Options: typescript, python, golang"
-                        ))
-                    );
-                    std::process::exit(1);
-                }
+                "ts" | "typescript" => Ok("typescript"),
+                "py" | "python" => Ok("python"),
+                "go" | "golang" => Ok("golang"),
+                other => Err(CliError::message(format!(
+                    "unknown language: '{other}'. Options: typescript, python, golang"
+                ))),
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?
     };
 
     generate_clients(&idl, &languages)?;

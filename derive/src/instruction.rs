@@ -4,7 +4,7 @@
 use {
     crate::helpers::{
         classify_dynamic_string, classify_dynamic_vec, classify_tail, extract_generic_inner_type,
-        is_unit_type, DynKind, InstructionArgs, TailElement,
+        is_unit_type, validate_prefix_capacity, DynKind, InstructionArgs, TailElement,
     },
     proc_macro::TokenStream,
     quote::quote,
@@ -108,24 +108,29 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        let kinds: Vec<DynKind> = remaining
-            .iter()
-            .map(|pt| {
-                if let Some((prefix, max)) = classify_dynamic_string(&pt.ty) {
-                    DynKind::Str { prefix, max }
-                } else if let Some(tail_elem) = classify_tail(&pt.ty) {
-                    DynKind::Tail { element: tail_elem }
-                } else if let Some((elem, prefix, max)) = classify_dynamic_vec(&pt.ty) {
-                    DynKind::Vec {
-                        elem: Box::new(elem),
-                        prefix,
-                        max,
-                    }
-                } else {
-                    DynKind::Fixed
+        let mut kinds = Vec::with_capacity(remaining.len());
+        for pt in &remaining {
+            let kind = if let Some((prefix, max)) = classify_dynamic_string(&pt.ty) {
+                if let Err(e) = validate_prefix_capacity(&pt.ty, prefix, max, "String") {
+                    return e.to_compile_error().into();
                 }
-            })
-            .collect();
+                DynKind::Str { prefix, max }
+            } else if let Some(tail_elem) = classify_tail(&pt.ty) {
+                DynKind::Tail { element: tail_elem }
+            } else if let Some((elem, prefix, max)) = classify_dynamic_vec(&pt.ty) {
+                if let Err(e) = validate_prefix_capacity(&pt.ty, prefix, max, "Vec") {
+                    return e.to_compile_error().into();
+                }
+                DynKind::Vec {
+                    elem: Box::new(elem),
+                    prefix,
+                    max,
+                }
+            } else {
+                DynKind::Fixed
+            };
+            kinds.push(kind);
+        }
 
         let has_dynamic = kinds.iter().any(|k| !matches!(k, DynKind::Fixed));
         let has_fixed = kinds.iter().any(|k| matches!(k, DynKind::Fixed));
@@ -361,8 +366,8 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
         let user_body: proc_macro2::TokenStream = stmts.iter().map(|s| quote!(#s)).collect();
         new_stmts.push(syn::parse_quote!(
             const _: () = assert!(
-                core::mem::align_of::<#ok_ty>() == 1,
-                "return data type must have alignment 1 (use Pod types)"
+                core::mem::align_of::<<#ok_ty as quasar_lang::instruction_arg::InstructionArg>::Zc>() == 1,
+                "return data type must implement InstructionArg with an alignment-1 Zc companion"
             );
         ));
         new_stmts.push(syn::parse_quote!(
@@ -371,10 +376,12 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
                 match __result {
                     Ok(ref __val) => {
                         #param_ident.accounts.epilogue()?;
+                        let __zc =
+                            <#ok_ty as quasar_lang::instruction_arg::InstructionArg>::to_zc(__val);
                         let __bytes = unsafe {
                             core::slice::from_raw_parts(
-                                __val as *const #ok_ty as *const u8,
-                                core::mem::size_of::<#ok_ty>(),
+                                &__zc as *const <#ok_ty as quasar_lang::instruction_arg::InstructionArg>::Zc as *const u8,
+                                core::mem::size_of::<<#ok_ty as quasar_lang::instruction_arg::InstructionArg>::Zc>(),
                             )
                         };
                         quasar_lang::return_data::set_return_data(__bytes);

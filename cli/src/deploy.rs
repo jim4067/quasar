@@ -1,5 +1,9 @@
 use {
-    crate::{config::QuasarConfig, error::CliResult, style, utils},
+    crate::{
+        config::QuasarConfig,
+        error::{CliError, CliResult},
+        style, utils,
+    },
     std::{
         path::PathBuf,
         process::{Command, Stdio},
@@ -22,16 +26,11 @@ pub fn run(
     }
 
     // Find the .so binary
-    let so_path = utils::find_so(&config, false).unwrap_or_else(|| {
-        eprintln!(
-            "\n  {}",
-            style::fail(&format!("no compiled binary found for \"{name}\""))
-        );
-        eprintln!();
-        eprintln!("  Run {} first.", style::bold("quasar build"));
-        eprintln!();
-        std::process::exit(1);
-    });
+    let Some(so_path) = utils::find_so(&config, false) else {
+        return Err(CliError::message(format!(
+            "no compiled binary found for \"{name}\"\n\n  Run quasar build first."
+        )));
+    };
 
     // Find the program keypair (check local and workspace target dirs)
     let keypair_path = program_keypair.unwrap_or_else(|| {
@@ -46,21 +45,11 @@ pub fn run(
     });
 
     if !keypair_path.exists() {
-        eprintln!(
-            "\n  {}",
-            style::fail(&format!(
-                "program keypair not found: {}",
-                keypair_path.display()
-            ))
-        );
-        eprintln!();
-        eprintln!(
-            "  Run {} to generate one, or pass {} explicitly.",
-            style::bold("quasar keys new"),
-            style::bold("--program-keypair")
-        );
-        eprintln!();
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "program keypair not found: {}\n\n  Run quasar keys new to generate one, or pass \
+             --program-keypair explicitly.",
+            keypair_path.display()
+        )));
     }
 
     let sp = style::spinner("Deploying...");
@@ -115,33 +104,28 @@ pub fn run(
         Ok(o) => {
             let stderr = String::from_utf8_lossy(&o.stderr);
             let stdout = String::from_utf8_lossy(&o.stdout);
+            let mut message = String::new();
             if !stderr.is_empty() {
-                eprintln!();
-                for line in stderr.lines() {
-                    eprintln!("  {line}");
-                }
+                message.push_str(stderr.trim_end());
             }
             if !stdout.is_empty() {
-                for line in stdout.lines() {
-                    eprintln!("  {line}");
+                if !message.is_empty() {
+                    message.push('\n');
                 }
+                message.push_str(stdout.trim_end());
             }
-            eprintln!();
-            eprintln!("  {}", style::fail("deploy failed"));
-            std::process::exit(o.status.code().unwrap_or(1));
+            if !message.is_empty() {
+                message.push_str("\n\n");
+            }
+            message.push_str("deploy failed");
+            Err(CliError::process_failure(
+                message,
+                o.status.code().unwrap_or(1),
+            ))
         }
-        Err(e) => {
-            eprintln!(
-                "\n  {}",
-                style::fail(&format!("failed to run solana program deploy: {e}"))
-            );
-            eprintln!();
-            eprintln!(
-                "  Make sure the {} CLI is installed and configured.",
-                style::bold("solana")
-            );
-            eprintln!();
-            std::process::exit(1);
-        }
+        Err(e) => Err(CliError::message(format!(
+            "failed to run solana program deploy: {e}\n\n  Make sure the solana CLI is installed \
+             and configured."
+        ))),
     }
 }

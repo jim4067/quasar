@@ -17,7 +17,7 @@ mod utilize;
 mod verify_collection;
 
 use quasar_lang::{
-    borsh::CpiEncode,
+    borsh::BorshCpiEncode,
     cpi::{BufCpiCall, CpiCall},
     prelude::*,
 };
@@ -26,11 +26,6 @@ use quasar_lang::{
 const MAX_NAME_LEN: usize = 32;
 const MAX_SYMBOL_LEN: usize = 10;
 const MAX_URI_LEN: usize = 200;
-
-const RENT_SYSVAR: Address = Address::new_from_array([
-    6, 167, 213, 23, 25, 44, 92, 81, 33, 140, 201, 76, 61, 74, 241, 127, 88, 218, 238, 8, 155, 161,
-    253, 68, 227, 219, 217, 138, 0, 0, 0, 0,
-]);
 
 /// Trait for types that can execute Metaplex Token Metadata CPI calls.
 ///
@@ -43,7 +38,7 @@ pub trait MetadataCpi: AsAccountView {
     /// Create a metadata account for an SPL Token mint.
     ///
     /// Accounts (7): metadata, mint, mint_authority, payer, update_authority,
-    /// system_program, rent (sysvar address).
+    /// system_program, rent.
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     fn create_metadata_accounts_v3<'a>(
@@ -55,13 +50,13 @@ pub trait MetadataCpi: AsAccountView {
         update_authority: &'a impl AsAccountView,
         system_program: &'a impl AsAccountView,
         rent: &'a impl AsAccountView,
-        name: impl CpiEncode<4>,
-        symbol: impl CpiEncode<4>,
-        uri: impl CpiEncode<4>,
+        name: impl BorshCpiEncode,
+        symbol: impl BorshCpiEncode,
+        uri: impl BorshCpiEncode,
         seller_fee_basis_points: u16,
         is_mutable: bool,
         update_authority_is_signer: bool,
-    ) -> BufCpiCall<'a, 7, 512> {
+    ) -> Result<BufCpiCall<'a, 7, 512>, ProgramError> {
         create_metadata::create_metadata_accounts_v3(
             self.to_account_view(),
             metadata.to_account_view(),
@@ -96,7 +91,7 @@ pub trait MetadataCpi: AsAccountView {
         seller_fee_basis_points: Option<u16>,
         primary_sale_happened: Option<bool>,
         is_mutable: Option<bool>,
-    ) -> BufCpiCall<'a, 2, 512> {
+    ) -> Result<BufCpiCall<'a, 2, 512>, ProgramError> {
         update_metadata::update_metadata_accounts_v2(
             self.to_account_view(),
             metadata.to_account_view(),

@@ -307,13 +307,9 @@ pub fn run(cli: Cli) -> CliResult {
         Command::Init(cmd) => init::run(cmd),
         Command::Add(cmd) => {
             if cmd.instruction.is_none() && cmd.state.is_none() && cmd.error.is_none() {
-                eprintln!(
-                    "  {}",
-                    style::fail(
-                        "specify at least one of -i/--instruction, -s/--state, or -e/--error"
-                    )
-                );
-                std::process::exit(1);
+                return Err(error::CliError::message(
+                    "specify at least one of -i/--instruction, -s/--state, or -e/--error",
+                ));
             }
             if let Some(name) = cmd.instruction {
                 new::run_instruction(&name)?;
@@ -455,33 +451,14 @@ fn print_cmd(cmd: &str, desc: &str) {
 }
 
 fn profile_watch(expand: bool) -> CliResult {
-    fn profile_once(expand: bool) {
-        match build::profile_build() {
-            Ok(elf) => {
-                quasar_profile::run(quasar_profile::ProfileCommand {
-                    elf_path: Some(elf),
-                    diff_program: None,
-                    share: false,
-                    expand,
-                });
-            }
-            Err(e) => {
-                eprintln!("  {}", style::fail(&format!("{e}")));
-            }
-        }
-    }
-
-    profile_once(expand);
-
-    loop {
-        let baseline = build::collect_mtimes(std::path::Path::new("src"));
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let current = build::collect_mtimes(std::path::Path::new("src"));
-            if current != baseline {
-                profile_once(expand);
-                break;
-            }
-        }
-    }
+    build::watch_loop(|| {
+        let elf = build::profile_build()?;
+        quasar_profile::run(quasar_profile::ProfileCommand {
+            elf_path: Some(elf),
+            diff_program: None,
+            share: false,
+            expand,
+        });
+        Ok(())
+    })
 }

@@ -26,6 +26,12 @@ const DUP_ENTRY_SIZE: usize = core::mem::size_of::<u64>();
 /// the cache array.
 const MAX_REMAINING_ACCOUNTS: usize = 64;
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum RemainingMode {
+    Strict,
+    Passthrough,
+}
+
 /// Advance past a non-duplicate account in the SVM input buffer.
 ///
 /// # SVM account layout
@@ -61,7 +67,9 @@ unsafe fn advance_past_dup(ptr: *mut u8) -> *mut u8 {
 ///
 /// Uses a boundary pointer instead of a count — no reads or arithmetic
 /// in the dispatch hot path. The `ptr` starts at the first remaining
-/// account in the SVM input buffer; `boundary` marks the end.
+/// account in the SVM input buffer; `boundary` marks the end. Strict mode keeps
+/// a small stack cache of previously yielded accounts so duplicate metas can be
+/// rejected deterministically without allocating.
 pub struct RemainingAccounts<'a> {
     /// Current position in the SVM input buffer.
     ptr: *mut u8,
@@ -69,16 +77,32 @@ pub struct RemainingAccounts<'a> {
     boundary: *const u8,
     /// Previously parsed declared accounts (for dup resolution).
     declared: &'a [AccountView],
+    /// Duplicate-account handling policy.
+    mode: RemainingMode,
 }
 
 impl<'a> RemainingAccounts<'a> {
-    /// Creates a new remaining accounts accessor from the SVM buffer pointers.
+    /// Creates a strict remaining accounts accessor from the SVM buffer
+    /// pointers.
     #[inline(always)]
     pub fn new(ptr: *mut u8, boundary: *const u8, declared: &'a [AccountView]) -> Self {
         Self {
             ptr,
             boundary,
             declared,
+            mode: RemainingMode::Strict,
+        }
+    }
+
+    /// Creates a passthrough remaining accounts accessor that preserves
+    /// duplicate metas exactly as encoded in the SVM buffer.
+    #[inline(always)]
+    pub fn new_passthrough(ptr: *mut u8, boundary: *const u8, declared: &'a [AccountView]) -> Self {
+        Self {
+            ptr,
+            boundary,
+            declared,
+            mode: RemainingMode::Passthrough,
         }
     }
 
@@ -88,12 +112,30 @@ impl<'a> RemainingAccounts<'a> {
         self.ptr as *const u8 >= self.boundary
     }
 
-    /// Access a single remaining account by index. O(n) walk from buffer start.
-    pub fn get(&self, index: usize) -> Option<AccountView> {
+    /// Access a single remaining account by index. O(n) walk from buffer
+    /// start.
+    ///
+    /// In strict mode, returns
+    /// `Err(QuasarError::RemainingAccountDuplicate)` if any duplicate entry is
+    /// encountered before or at the requested index.
+    pub fn get(&self, index: usize) -> Result<Option<AccountView>, ProgramError> {
+        if self.mode == RemainingMode::Strict {
+            let mut iter = self.iter();
+            for i in 0..=index {
+                match iter.next() {
+                    Some(Ok(view)) if i == index => return Ok(Some(view)),
+                    Some(Ok(_)) => {}
+                    Some(Err(err)) => return Err(err),
+                    None => return Ok(None),
+                }
+            }
+            return Ok(None);
+        }
+
         let mut ptr = self.ptr;
         for i in 0..=index {
             if ptr as *const u8 >= self.boundary {
-                return None;
+                return Ok(None);
             }
             let raw = ptr as *mut RuntimeAccount;
             // SAFETY: `ptr` is within the SVM buffer (checked against boundary).
@@ -101,12 +143,12 @@ impl<'a> RemainingAccounts<'a> {
             let borrow = unsafe { (*raw).borrow_state };
 
             if i == index {
-                return Some(if borrow == NOT_BORROWED {
+                return Ok(Some(if borrow == NOT_BORROWED {
                     // SAFETY: Non-duplicate entry — `raw` is a valid `RuntimeAccount`.
                     unsafe { AccountView::new_unchecked(raw) }
                 } else {
-                    resolve_dup_walk(borrow as usize, self.declared, self.ptr, self.boundary)
-                });
+                    resolve_dup_walk(borrow as usize, self.declared, self.ptr, self.boundary)?
+                }));
             }
 
             if borrow == NOT_BORROWED {
@@ -117,7 +159,7 @@ impl<'a> RemainingAccounts<'a> {
                 ptr = unsafe { advance_past_dup(ptr) };
             }
         }
-        None
+        Ok(None)
     }
 
     /// Returns an iterator that yields each remaining account in order.
@@ -132,6 +174,7 @@ impl<'a> RemainingAccounts<'a> {
             ptr: self.ptr,
             boundary: self.boundary,
             declared: self.declared,
+            mode: self.mode,
             index: 0,
             cache: core::mem::MaybeUninit::uninit(),
         }
@@ -149,13 +192,13 @@ fn resolve_dup_walk(
     declared: &[AccountView],
     start: *mut u8,
     boundary: *const u8,
-) -> AccountView {
+) -> Result<AccountView, ProgramError> {
     let mut idx = orig_idx;
     for _ in 0..2 {
         if idx < declared.len() {
             // SAFETY: `idx < declared.len()` ensures the read is in-bounds.
             // `AccountView` is `Copy`-like (repr(C) pointer wrapper).
-            return unsafe { core::ptr::read(declared.as_ptr().add(idx)) };
+            return Ok(unsafe { core::ptr::read(declared.as_ptr().add(idx)) });
         }
 
         let target = idx - declared.len();
@@ -170,7 +213,7 @@ fn resolve_dup_walk(
 
             if i == target {
                 if borrow == NOT_BORROWED {
-                    return unsafe { AccountView::new_unchecked(raw) };
+                    return Ok(unsafe { AccountView::new_unchecked(raw) });
                 }
                 idx = borrow as usize;
                 break;
@@ -183,7 +226,7 @@ fn resolve_dup_walk(
             }
         }
     }
-    unreachable!("duplicate chain exceeded maximum depth")
+    Err(ProgramError::InvalidAccountData)
 }
 
 /// Iterator over remaining accounts.
@@ -198,6 +241,8 @@ pub struct RemainingIter<'a> {
     boundary: *const u8,
     /// Previously parsed declared accounts (for dup resolution).
     declared: &'a [AccountView],
+    /// Duplicate-account handling policy.
+    mode: RemainingMode,
     /// Number of accounts yielded so far.
     index: usize,
     /// Cache of yielded views. Elements `0..index` are initialized.
@@ -213,6 +258,26 @@ impl RemainingIter<'_> {
     #[inline(always)]
     fn cache_mut_ptr(&mut self) -> *mut AccountView {
         self.cache.as_mut_ptr() as *mut AccountView
+    }
+
+    #[inline(always)]
+    fn has_seen_address(&self, address: &solana_address::Address) -> bool {
+        if self
+            .declared
+            .iter()
+            .any(|view| crate::keys_eq(view.address(), address))
+        {
+            return true;
+        }
+
+        for idx in 0..self.index {
+            let view = unsafe { &*self.cache_ptr().add(idx) };
+            if crate::keys_eq(view.address(), address) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// O(1) dup resolution via declared slice or iterator cache.
@@ -256,8 +321,17 @@ impl Iterator for RemainingIter<'_> {
             view
         } else {
             self.ptr = unsafe { advance_past_dup(self.ptr) };
+            if self.mode == RemainingMode::Strict {
+                self.ptr = self.boundary as *mut u8;
+                return Some(Err(QuasarError::RemainingAccountDuplicate.into()));
+            }
             self.resolve_dup(borrow as usize)?
         };
+
+        if self.mode == RemainingMode::Strict && self.has_seen_address(view.address()) {
+            self.ptr = self.boundary as *mut u8;
+            return Some(Err(QuasarError::RemainingAccountDuplicate.into()));
+        }
 
         // SAFETY: `self.index < MAX_REMAINING_ACCOUNTS` (checked above),
         // so the write is within the `MaybeUninit` cache allocation.

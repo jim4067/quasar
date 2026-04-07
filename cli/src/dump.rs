@@ -1,6 +1,11 @@
 use {
-    crate::{config::QuasarConfig, error::CliResult, style, utils},
+    crate::{
+        config::QuasarConfig,
+        error::{CliError, CliResult},
+        style, utils,
+    },
     std::{
+        cmp::Ordering,
         path::PathBuf,
         process::{Command, Stdio},
     },
@@ -13,26 +18,19 @@ pub fn run(elf_path: Option<PathBuf>, function: Option<String>, source: bool) ->
     };
 
     if !so_path.exists() {
-        eprintln!(
-            "  {}",
-            style::fail(&format!("file not found: {}", so_path.display()))
-        );
-        std::process::exit(1);
+        return Err(CliError::message(format!(
+            "file not found: {}",
+            so_path.display()
+        )));
     }
 
-    let objdump = find_objdump().unwrap_or_else(|| {
-        eprintln!(
-            "  {}",
-            style::fail("llvm-objdump not found in Solana platform-tools.")
-        );
-        eprintln!();
-        eprintln!("  Looked in ~/.cache/solana/*/platform-tools/llvm/bin/");
-        eprintln!(
-            "  Install platform-tools: {}",
-            style::bold("solana-install init")
-        );
-        std::process::exit(1);
-    });
+    let Some(objdump) = find_objdump() else {
+        return Err(CliError::message(
+            "llvm-objdump not found in Solana platform-tools.\n\n  Looked in \
+             ~/.cache/solana/*/platform-tools/llvm/bin/\n  Install platform-tools: solana-install \
+             init",
+        ));
+    };
 
     let mut cmd = Command::new(&objdump);
     cmd.arg("-d") // disassemble
@@ -59,15 +57,13 @@ pub fn run(elf_path: Option<PathBuf>, function: Option<String>, source: bool) ->
 
             if lines.is_empty() || (function.is_some() && lines.len() <= 2) {
                 if let Some(sym) = function {
-                    eprintln!("  {}", style::fail(&format!("symbol not found: {sym}")));
-                    eprintln!(
-                        "  {}",
-                        style::dim("Try a mangled or partial name, e.g. 'entrypoint'")
-                    );
+                    return Err(CliError::message(format!(
+                        "symbol not found: {sym}\n  Try a mangled or partial name, e.g. \
+                         'entrypoint'"
+                    )));
                 } else {
-                    eprintln!("  {}", style::fail("no disassembly output"));
+                    return Err(CliError::message("no disassembly output"));
                 }
-                std::process::exit(1);
             }
 
             // Print with minimal framing
@@ -98,19 +94,20 @@ pub fn run(elf_path: Option<PathBuf>, function: Option<String>, source: bool) ->
         }
         Ok(o) => {
             let stderr = String::from_utf8_lossy(&o.stderr);
-            eprintln!("  {}", style::fail("llvm-objdump failed"));
-            if !stderr.trim().is_empty() {
-                eprintln!("  {}", stderr.trim());
-            }
-            std::process::exit(1);
+            let message = if stderr.trim().is_empty() {
+                "llvm-objdump failed".to_string()
+            } else {
+                format!("llvm-objdump failed\n{}", stderr.trim())
+            };
+            Err(CliError::process_failure(
+                message,
+                o.status.code().unwrap_or(1),
+            ))
         }
-        Err(e) => {
-            eprintln!(
-                "  {}",
-                style::fail(&format!("failed to run {}: {e}", objdump.display()))
-            );
-            std::process::exit(1);
-        }
+        Err(e) => Err(CliError::message(format!(
+            "failed to run {}: {e}",
+            objdump.display()
+        ))),
     }
 }
 
@@ -118,17 +115,10 @@ fn find_so() -> Result<PathBuf, crate::error::CliError> {
     let config = QuasarConfig::load()?;
     match utils::find_so(&config, true) {
         Some(p) => Ok(p),
-        None => {
-            eprintln!(
-                "  {}",
-                style::fail("no .so found in target/deploy/ or target/profile/")
-            );
-            eprintln!(
-                "  {}",
-                style::dim("Run `quasar build` first or pass a path: `quasar dump <path>`")
-            );
-            std::process::exit(1);
-        }
+        None => Err(CliError::message(
+            "no .so found in target/deploy/ or target/profile/\n  Run `quasar build` first or \
+             pass a path: `quasar dump <path>`",
+        )),
     }
 }
 
@@ -146,16 +136,95 @@ fn find_objdump() -> Option<PathBuf> {
         .filter_map(|e| {
             let path = e.path();
             let name = path.file_name()?.to_str()?;
-            let ver = name.strip_prefix('v')?;
-            let num: f64 = ver.parse().ok()?;
+            let version = parse_toolchain_version(name)?;
             let objdump = path.join("platform-tools/llvm/bin/llvm-objdump");
             if objdump.exists() {
-                Some((num, objdump))
+                Some((version, objdump))
             } else {
                 None
             }
         })
         .collect();
-    versions.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
     versions.into_iter().next().map(|(_, path)| path)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ToolchainVersion(Vec<u64>);
+
+impl Ord for ToolchainVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let max_len = self.0.len().max(other.0.len());
+        for idx in 0..max_len {
+            let lhs = self.0.get(idx).copied().unwrap_or(0);
+            let rhs = other.0.get(idx).copied().unwrap_or(0);
+            match lhs.cmp(&rhs) {
+                Ordering::Equal => continue,
+                non_eq => return non_eq,
+            }
+        }
+
+        Ordering::Equal
+    }
+}
+
+impl PartialOrd for ToolchainVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn parse_toolchain_version(name: &str) -> Option<ToolchainVersion> {
+    let version = name.strip_prefix('v')?;
+    let parts = version
+        .split('.')
+        .map(|part| part.parse::<u64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(ToolchainVersion(parts))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_toolchain_version, ToolchainVersion};
+
+    #[test]
+    fn parses_semver_style_versions() {
+        assert_eq!(
+            parse_toolchain_version("v1.18.22"),
+            Some(ToolchainVersion(vec![1, 18, 22]))
+        );
+        assert_eq!(
+            parse_toolchain_version("v2.0"),
+            Some(ToolchainVersion(vec![2, 0]))
+        );
+        assert_eq!(parse_toolchain_version("1.18.22"), None);
+        assert_eq!(parse_toolchain_version("v1.18.beta"), None);
+    }
+
+    #[test]
+    fn compares_versions_numerically() {
+        let mut versions = [
+            parse_toolchain_version("v1.9.0").expect("parse v1.9.0"),
+            parse_toolchain_version("v1.18.22").expect("parse v1.18.22"),
+            parse_toolchain_version("v1.10.3").expect("parse v1.10.3"),
+            parse_toolchain_version("v2.0.0").expect("parse v2.0.0"),
+        ];
+
+        versions.sort();
+
+        assert_eq!(
+            versions,
+            [
+                ToolchainVersion(vec![1, 9, 0]),
+                ToolchainVersion(vec![1, 10, 3]),
+                ToolchainVersion(vec![1, 18, 22]),
+                ToolchainVersion(vec![2, 0, 0]),
+            ]
+        );
+    }
 }

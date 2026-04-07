@@ -1,61 +1,54 @@
 use {
     super::{
-        templates::*, PackageManager, RustFramework, Template, TestLanguage, Toolchain,
-        TypeScriptSdk,
+        schema::{
+            QuasarClients, QuasarProject, QuasarRustTesting, QuasarTesting, QuasarToml,
+            QuasarToolchain, QuasarTypeScriptTesting,
+        },
+        templates::*,
+        types::{PackageManager, RustFramework, Template, TestLanguage, Toolchain, TypeScriptSdk},
     },
-    crate::error::CliResult,
+    crate::error::{CliError, CliResult},
     std::{fs, path::Path},
 };
 
 /// Check that the target directory is usable before prompting the user for
-/// scaffolding parameters.  Exits the process with a diagnostic on failure.
-pub(super) fn validate_target_dir(dir: &str) {
+/// scaffolding parameters.
+pub(super) fn validate_target_dir(dir: &str) -> Result<(), CliError> {
     let root = Path::new(dir);
 
     if dir == "." {
         if root.join("Quasar.toml").exists() {
-            eprintln!(
-                "  {}",
-                crate::style::fail("current directory is already a Quasar project")
-            );
-            std::process::exit(1);
+            return Err(CliError::message(
+                "current directory is already a Quasar project",
+            ));
         }
         if root.join("Cargo.toml").exists() {
-            eprintln!(
-                "  {}",
-                crate::style::fail("current directory already contains a Rust project")
-            );
-            std::process::exit(1);
+            return Err(CliError::message(
+                "current directory already contains a Rust project",
+            ));
         }
         if fs::read_dir(root).is_ok_and(|mut d| d.next().is_some()) {
-            eprintln!("  {}", crate::style::fail("current directory is not empty"));
-            std::process::exit(1);
+            return Err(CliError::message("current directory is not empty"));
         }
     } else if root.exists() {
         if !root.is_dir() {
-            eprintln!(
-                "  {}",
-                crate::style::fail(&format!("path '{dir}' exists and is not a directory"))
-            );
-            std::process::exit(1);
+            return Err(CliError::message(format!(
+                "path '{dir}' exists and is not a directory"
+            )));
         }
         if root.join("Quasar.toml").exists() {
-            eprintln!(
-                "  {}",
-                crate::style::fail(&format!("directory '{dir}' is already a Quasar project"))
-            );
-            std::process::exit(1);
+            return Err(CliError::message(format!(
+                "directory '{dir}' is already a Quasar project"
+            )));
         }
         if fs::read_dir(root).is_ok_and(|mut d| d.next().is_some()) {
-            eprintln!(
-                "  {}",
-                crate::style::fail(&format!(
-                    "directory '{dir}' already exists and is not empty"
-                ))
-            );
-            std::process::exit(1);
+            return Err(CliError::message(format!(
+                "directory '{dir}' already exists and is not empty"
+            )));
         }
     }
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -76,36 +69,36 @@ pub(super) fn scaffold(
     fs::create_dir_all(&src).map_err(anyhow::Error::from)?;
 
     // Quasar.toml
-    let config = super::QuasarToml {
-        project: super::QuasarProject {
+    let config = QuasarToml {
+        project: QuasarProject {
             name: name.to_string(),
         },
-        toolchain: super::QuasarToolchain {
+        toolchain: QuasarToolchain {
             toolchain_type: toolchain.to_string(),
         },
-        testing: super::QuasarTesting {
+        testing: QuasarTesting {
             language: test_language.to_string(),
             rust: match (test_language, rust_framework) {
-                (TestLanguage::Rust, Some(fw)) => Some(super::QuasarRustTesting {
+                (TestLanguage::Rust, Some(fw)) => Some(QuasarRustTesting {
                     framework: fw.to_string(),
-                    test: "cargo test tests::".to_string(),
+                    test: crate::config::CommandSpec::new("cargo", ["test", "tests::"]),
                 }),
                 _ => None,
             },
             typescript: match (test_language, ts_sdk) {
                 (TestLanguage::TypeScript, Some(sdk)) => {
                     let pm = package_manager.expect("package_manager required for TS");
-                    Some(super::QuasarTypeScriptTesting {
+                    Some(QuasarTypeScriptTesting {
                         framework: "quasar-svm".to_string(),
                         sdk: sdk.to_string(),
-                        install: pm.install_cmd().to_string(),
-                        test: pm.test_cmd().to_string(),
+                        install: crate::config::CommandSpec::parse(pm.install_cmd())?,
+                        test: crate::config::CommandSpec::parse(pm.test_cmd())?,
                     })
                 }
                 _ => None,
             },
         },
-        clients: super::QuasarClients {
+        clients: QuasarClients {
             languages: client_languages.to_vec(),
         },
     };

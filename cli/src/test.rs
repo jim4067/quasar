@@ -1,5 +1,9 @@
 use {
-    crate::{config::QuasarConfig, error::CliResult, style},
+    crate::{
+        config::{CommandSpec, QuasarConfig},
+        error::{CliError, CliResult},
+        style,
+    },
     std::process::Command,
 };
 
@@ -11,7 +15,7 @@ pub fn run(
     features: Option<String>,
 ) -> CliResult {
     if watch {
-        return run_watch(debug, filter, no_build, features);
+        run_watch(debug, filter, no_build, features);
     }
     run_once(debug, filter.as_deref(), no_build, features.as_deref())
 }
@@ -38,29 +42,8 @@ fn run_once(
     }
 }
 
-fn run_watch(
-    debug: bool,
-    filter: Option<String>,
-    no_build: bool,
-    features: Option<String>,
-) -> CliResult {
-    if let Err(e) = run_once(debug, filter.as_deref(), no_build, features.as_deref()) {
-        eprintln!("  {}", style::fail(&format!("{e}")));
-    }
-
-    loop {
-        let baseline = crate::build::collect_mtimes(std::path::Path::new("src"));
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let current = crate::build::collect_mtimes(std::path::Path::new("src"));
-            if current != baseline {
-                if let Err(e) = run_once(debug, filter.as_deref(), no_build, features.as_deref()) {
-                    eprintln!("  {}", style::fail(&format!("{e}")));
-                }
-                break;
-            }
-        }
-    }
+fn run_watch(debug: bool, filter: Option<String>, no_build: bool, features: Option<String>) -> ! {
+    crate::build::watch_loop(|| run_once(debug, filter.as_deref(), no_build, features.as_deref()))
 }
 
 // ---------------------------------------------------------------------------
@@ -69,11 +52,13 @@ fn run_watch(
 
 fn run_typescript_tests(config: &QuasarConfig, filter: Option<&str>) -> CliResult {
     let ts = config.testing.typescript.as_ref();
-    let install_cmd = ts.map(|t| t.install.as_str()).unwrap_or("npm install");
-    let test_cmd = ts.map(|t| t.test.as_str()).unwrap_or("npx vitest run");
+    let default_install = CommandSpec::new("npm", ["install"]);
+    let default_test = CommandSpec::new("npx", ["vitest", "run"]);
+    let install_cmd = ts.map(|t| &t.install).unwrap_or(&default_install);
+    let test_cmd = ts.map(|t| &t.test).unwrap_or(&default_test);
 
     if !std::path::Path::new("node_modules").exists() {
-        run_shell_cmd(install_cmd)?;
+        run_command(install_cmd)?;
     }
 
     run_test_cmd(test_cmd, filter)
@@ -84,12 +69,13 @@ fn run_typescript_tests(config: &QuasarConfig, filter: Option<&str>) -> CliResul
 // ---------------------------------------------------------------------------
 
 fn run_rust_tests(config: &QuasarConfig, filter: Option<&str>) -> CliResult {
+    let default_test = CommandSpec::new("cargo", ["test", "tests::"]);
     let test_cmd = config
         .testing
         .rust
         .as_ref()
-        .map(|r| r.test.as_str())
-        .unwrap_or("cargo test tests::");
+        .map(|r| &r.test)
+        .unwrap_or(&default_test);
 
     run_test_cmd(test_cmd, filter)
 }
@@ -98,34 +84,29 @@ fn run_rust_tests(config: &QuasarConfig, filter: Option<&str>) -> CliResult {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn run_shell_cmd(cmd_str: &str) -> CliResult {
-    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
-    let status = Command::new(parts[0]).args(&parts[1..]).status();
+fn run_command(command: &CommandSpec) -> CliResult {
+    let status = Command::new(&command.program).args(&command.args).status();
 
     match status {
         Ok(s) if s.success() => Ok(()),
-        Ok(s) => {
-            eprintln!("  {}", style::fail(&format!("{cmd_str} failed")));
-            std::process::exit(s.code().unwrap_or(1));
-        }
-        Err(e) => {
-            eprintln!(
-                "  {}",
-                style::fail(&format!("failed to run {cmd_str}: {e}"))
-            );
-            std::process::exit(1);
-        }
+        Ok(s) => Err(CliError::process_failure(
+            format!("{} failed", command.display()),
+            s.code().unwrap_or(1),
+        )),
+        Err(e) => Err(CliError::message(format!(
+            "failed to run {}: {e}",
+            command.display()
+        ))),
     }
 }
 
-fn run_test_cmd(test_cmd: &str, filter: Option<&str>) -> CliResult {
-    let parts: Vec<&str> = test_cmd.split_whitespace().collect();
-    let mut cmd = Command::new(parts[0]);
-    cmd.args(&parts[1..]);
+fn run_test_cmd(test_cmd: &CommandSpec, filter: Option<&str>) -> CliResult {
+    let mut cmd = Command::new(&test_cmd.program);
+    cmd.args(&test_cmd.args);
 
     if let Some(pattern) = filter {
         // cargo test uses a positional filter; vitest/jest use -t
-        if parts[0] == "cargo" {
+        if test_cmd.program == "cargo" {
             cmd.arg(pattern);
         } else {
             cmd.args(["-t", pattern]);
@@ -136,13 +117,13 @@ fn run_test_cmd(test_cmd: &str, filter: Option<&str>) -> CliResult {
 
     match status {
         Ok(s) if s.success() => Ok(()),
-        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
-        Err(e) => {
-            eprintln!(
-                "  {}",
-                style::fail(&format!("failed to run {test_cmd}: {e}"))
-            );
-            std::process::exit(1);
-        }
+        Ok(s) => Err(CliError::process_failure(
+            format!("{} failed", test_cmd.display()),
+            s.code().unwrap_or(1),
+        )),
+        Err(e) => Err(CliError::message(format!(
+            "failed to run {}: {e}",
+            test_cmd.display()
+        ))),
     }
 }

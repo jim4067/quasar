@@ -12,17 +12,19 @@
 pub mod buf;
 pub mod system;
 
-pub use {
-    buf::BufCpiCall,
-    solana_instruction_view::{
-        cpi::{CpiAccount, Seed, Signer},
-        InstructionAccount, InstructionView,
-    },
-};
 use {
+    crate::{error::QuasarError, instruction_arg::InstructionArg},
+    core::mem::MaybeUninit,
     solana_account_view::{AccountView, RuntimeAccount},
     solana_address::Address,
     solana_program_error::{ProgramError, ProgramResult},
+};
+pub use {
+    buf::BufCpiCall,
+    solana_instruction_view::{
+        cpi::{CpiAccount, Seed, Signer, MAX_RETURN_DATA},
+        InstructionAccount, InstructionView,
+    },
 };
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
@@ -110,6 +112,91 @@ pub(crate) fn result_from_raw(result: u64) -> ProgramResult {
     }
 }
 
+/// Return data captured from a CPI invocation.
+pub struct CpiReturn {
+    program_id: Address,
+    data: [u8; MAX_RETURN_DATA],
+    data_len: usize,
+}
+
+impl CpiReturn {
+    #[cfg_attr(
+        not(any(test, target_os = "solana", target_arch = "bpf")),
+        allow(dead_code)
+    )]
+    #[inline(always)]
+    fn new(program_id: Address, data: [u8; MAX_RETURN_DATA], data_len: usize) -> Self {
+        Self {
+            program_id,
+            data,
+            data_len,
+        }
+    }
+
+    /// Program that most recently set the return data.
+    #[inline(always)]
+    pub fn program_id(&self) -> &Address {
+        &self.program_id
+    }
+
+    /// Raw return-data bytes.
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[u8] {
+        &self.data[..self.data_len]
+    }
+
+    /// Decode return data as a fixed-size Quasar instruction-arg type.
+    #[inline(always)]
+    pub fn decode<T: InstructionArg>(&self) -> Result<T, ProgramError> {
+        let expected_len = core::mem::size_of::<T::Zc>();
+        if self.data_len != expected_len {
+            return Err(QuasarError::InvalidReturnData.into());
+        }
+
+        let mut zc = MaybeUninit::<T::Zc>::uninit();
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                self.data.as_ptr(),
+                zc.as_mut_ptr() as *mut u8,
+                expected_len,
+            );
+        }
+        let zc = unsafe { zc.assume_init() };
+        Ok(T::from_zc(&zc))
+    }
+}
+
+#[inline(always)]
+fn get_cpi_return() -> Result<CpiReturn, ProgramError> {
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    {
+        let mut program_id = MaybeUninit::<Address>::uninit();
+        let mut data = [0u8; MAX_RETURN_DATA];
+        let size = unsafe {
+            solana_define_syscall::definitions::sol_get_return_data(
+                data.as_mut_ptr(),
+                MAX_RETURN_DATA as u64,
+                program_id.as_mut_ptr() as *mut _ as *mut u8,
+            )
+        } as usize;
+
+        if size == 0 {
+            return Err(QuasarError::MissingReturnData.into());
+        }
+
+        return Ok(CpiReturn::new(
+            unsafe { program_id.assume_init() },
+            data,
+            core::cmp::min(size, MAX_RETURN_DATA),
+        ));
+    }
+
+    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+    {
+        Err(QuasarError::MissingReturnData.into())
+    }
+}
+
 const RUNTIME_ACCOUNT_SIZE: usize = core::mem::size_of::<RuntimeAccount>();
 
 // Layout-compatible helper for batched flag extraction.
@@ -145,7 +232,8 @@ const _: () = assert!(core::mem::offset_of!(RuntimeAccount, executable) == 3);
 /// Reads the 4-byte header `[borrow_state, is_signer, is_writable, executable]`
 /// as u32, shifts right 8 to drop `borrow_state`, keeping the three flag bytes.
 /// The result is transmuted to `CpiAccount` which has an identical `#[repr(C)]`
-/// layout (verified by compile-time assertions above).
+/// layout (verified by compile-time assertions above and by the
+/// `cpi_account_from_view_matches_upstream_layout` test).
 #[inline(always)]
 pub(crate) fn cpi_account_from_view(view: &AccountView) -> CpiAccount<'_> {
     let raw = view.account_ptr();
@@ -153,9 +241,9 @@ pub(crate) fn cpi_account_from_view(view: &AccountView) -> CpiAccount<'_> {
     // - `raw` points to a valid `RuntimeAccount` (guaranteed by `AccountView`).
     // - The u32 read is unaligned but SBF handles this natively; on other targets
     //   `read_unaligned` is correct by definition.
-    // - `RawCpiBuilder` has identical size/alignment as `CpiAccount` (verified by
-    //   compile-time assertions). The transmute reinterprets the builder as the
-    //   upstream type with no layout change.
+    // - `RawCpiBuilder` has identical size/alignment/field order as `CpiAccount`
+    //   (compile-time assertions + unit test). The transmute reinterprets the
+    //   builder as the upstream type with no layout change.
     // - Account data immediately follows the `RuntimeAccount` header.
     unsafe {
         let flags = (raw as *const u32).read_unaligned() >> 8;
@@ -251,6 +339,27 @@ impl<'a, const ACCTS: usize, const DATA: usize> CpiCall<'a, ACCTS, DATA> {
         self.invoke_inner(signers)
     }
 
+    /// Invoke the CPI and read back raw return data.
+    #[inline(always)]
+    pub fn invoke_with_return(&self) -> Result<CpiReturn, ProgramError> {
+        self.invoke_with_return_inner(&[])
+    }
+
+    /// Invoke the CPI with one PDA signer and read back raw return data.
+    #[inline(always)]
+    pub fn invoke_signed_with_return(&self, seeds: &[Seed]) -> Result<CpiReturn, ProgramError> {
+        self.invoke_with_return_inner(&[Signer::from(seeds)])
+    }
+
+    /// Invoke the CPI with multiple PDA signers and read back raw return data.
+    #[inline(always)]
+    pub fn invoke_with_signers_with_return(
+        &self,
+        signers: &[Signer],
+    ) -> Result<CpiReturn, ProgramError> {
+        self.invoke_with_return_inner(signers)
+    }
+
     #[inline(always)]
     fn invoke_inner(&self, signers: &[Signer]) -> ProgramResult {
         // SAFETY: All pointer/length pairs derive from owned fixed-size arrays
@@ -270,8 +379,166 @@ impl<'a, const ACCTS: usize, const DATA: usize> CpiCall<'a, ACCTS, DATA> {
         result_from_raw(result)
     }
 
+    #[inline(always)]
+    fn invoke_with_return_inner(&self, signers: &[Signer]) -> Result<CpiReturn, ProgramError> {
+        crate::return_data::set_return_data(&[]);
+        let result = unsafe {
+            invoke_raw(
+                self.program_id,
+                self.accounts.as_ptr(),
+                ACCTS,
+                self.data.as_ptr(),
+                DATA,
+                self.cpi_accounts.as_ptr(),
+                ACCTS,
+                signers,
+            )
+        };
+        result_from_raw(result)?;
+        let ret = get_cpi_return()?;
+        if !crate::keys_eq(ret.program_id(), self.program_id) {
+            return Err(QuasarError::ReturnDataFromWrongProgram.into());
+        }
+        Ok(ret)
+    }
+
     #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
     pub fn instruction_data(&self) -> &[u8] {
         &self.data
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use {
+        super::*,
+        quasar_derive::QuasarSerialize,
+        solana_account_view::{RuntimeAccount, MAX_PERMITTED_DATA_INCREASE, NOT_BORROWED},
+    };
+
+    struct AccountBuffer {
+        inner: std::vec::Vec<u64>,
+    }
+
+    impl AccountBuffer {
+        fn new(data_len: usize) -> Self {
+            let byte_len =
+                core::mem::size_of::<RuntimeAccount>() + data_len + MAX_PERMITTED_DATA_INCREASE;
+            Self {
+                inner: (0..byte_len.div_ceil(8)).map(|_| 0u64).collect(),
+            }
+        }
+
+        fn raw(&mut self) -> *mut RuntimeAccount {
+            self.inner.as_mut_ptr() as *mut RuntimeAccount
+        }
+
+        fn init(
+            &mut self,
+            address: [u8; 32],
+            owner: [u8; 32],
+            data_len: usize,
+            is_signer: bool,
+            is_writable: bool,
+            executable: bool,
+        ) {
+            let raw = self.raw();
+            unsafe {
+                (*raw).borrow_state = NOT_BORROWED;
+                (*raw).is_signer = is_signer as u8;
+                (*raw).is_writable = is_writable as u8;
+                (*raw).executable = executable as u8;
+                (*raw).padding = [0u8; 4];
+                (*raw).address = Address::new_from_array(address);
+                (*raw).owner = Address::new_from_array(owner);
+                (*raw).lamports = 123;
+                (*raw).data_len = data_len as u64;
+            }
+        }
+
+        unsafe fn view(&mut self) -> AccountView {
+            AccountView::new_unchecked(self.raw())
+        }
+    }
+
+    fn cpi_account_bytes<'a>(account: &'a CpiAccount<'a>) -> &'a [u8] {
+        unsafe {
+            core::slice::from_raw_parts(
+                account as *const CpiAccount<'_> as *const u8,
+                core::mem::size_of::<CpiAccount<'_>>(),
+            )
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, QuasarSerialize)]
+    struct ReturnPayload {
+        amount: u64,
+        flag: bool,
+    }
+
+    #[test]
+    fn decode_primitive_return_uses_instruction_arg_layout() {
+        let pod = <u64 as InstructionArg>::to_zc(&777u64);
+        let bytes = unsafe {
+            core::slice::from_raw_parts(
+                &pod as *const <u64 as InstructionArg>::Zc as *const u8,
+                core::mem::size_of::<<u64 as InstructionArg>::Zc>(),
+            )
+        };
+        let mut data = [0u8; MAX_RETURN_DATA];
+        data[..bytes.len()].copy_from_slice(bytes);
+
+        let ret = CpiReturn::new(Address::new_from_array([1u8; 32]), data, bytes.len());
+        assert_eq!(ret.decode::<u64>().unwrap(), 777u64);
+    }
+
+    #[test]
+    fn decode_struct_return_uses_zc_companion_layout() {
+        let payload = ReturnPayload {
+            amount: 55,
+            flag: true,
+        };
+        let zc = <ReturnPayload as InstructionArg>::to_zc(&payload);
+        let bytes = unsafe {
+            core::slice::from_raw_parts(
+                &zc as *const <ReturnPayload as InstructionArg>::Zc as *const u8,
+                core::mem::size_of::<<ReturnPayload as InstructionArg>::Zc>(),
+            )
+        };
+        let mut data = [0u8; MAX_RETURN_DATA];
+        data[..bytes.len()].copy_from_slice(bytes);
+
+        let ret = CpiReturn::new(Address::new_from_array([2u8; 32]), data, bytes.len());
+        assert_eq!(ret.decode::<ReturnPayload>().unwrap(), payload);
+    }
+
+    #[test]
+    fn cpi_account_from_view_matches_upstream_layout() {
+        for (is_signer, is_writable, executable) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+            (true, true, true),
+        ] {
+            let mut buf = AccountBuffer::new(16);
+            buf.init(
+                [0x11; 32],
+                [0x22; 32],
+                16,
+                is_signer,
+                is_writable,
+                executable,
+            );
+            let view = unsafe { buf.view() };
+
+            let upstream = CpiAccount::from(&view);
+            let quasar = cpi_account_from_view(&view);
+
+            assert_eq!(cpi_account_bytes(&quasar), cpi_account_bytes(&upstream));
+        }
     }
 }
