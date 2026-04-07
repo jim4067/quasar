@@ -44,9 +44,17 @@ fn run_once(debug: bool, features: Option<&str>) -> CliResult {
         ensure_lockfile(&sp)?;
     }
 
+    // In a workspace, scope the build to the program crate so we don't try
+    // to compile CLIs, test suites, or other members for the BPF target.
+    let manifest = crate_root.join("Cargo.toml");
+    let scoped = manifest.exists() && crate_root != Path::new(".");
+
     let output = if config.is_solana_toolchain() {
         let mut cmd = Command::new("cargo");
         cmd.arg("build-sbf");
+        if scoped {
+            cmd.args(["--manifest-path", &manifest.to_string_lossy()]);
+        }
         if debug {
             cmd.arg("--debug");
         }
@@ -65,6 +73,9 @@ fn run_once(debug: bool, features: Option<&str>) -> CliResult {
             cmd.env("RUSTFLAGS", "-C link-arg=--btf -C debuginfo=2");
         }
         cmd.arg("build-bpf");
+        if scoped {
+            cmd.args(["--manifest-path", &manifest.to_string_lossy()]);
+        }
         if let Some(f) = features {
             cmd.args(["--features", f]);
         }
@@ -158,9 +169,15 @@ pub fn profile_build() -> Result<PathBuf, crate::error::CliError> {
         ensure_lockfile(&sp)?;
     }
 
+    let manifest = crate_root.join("Cargo.toml");
+    let scoped = manifest.exists() && crate_root != Path::new(".");
+
     let output = if config.is_solana_toolchain() {
         let mut cmd = Command::new("cargo");
         cmd.arg("build-sbf").arg("--debug");
+        if scoped {
+            cmd.args(["--manifest-path", &manifest.to_string_lossy()]);
+        }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output()
     } else {
         if !toolchain::has_sbpf_linker() {
@@ -183,6 +200,9 @@ pub fn profile_build() -> Result<PathBuf, crate::error::CliError> {
         let mut cmd = Command::new("cargo");
         cmd.env("CARGO_ENCODED_RUSTFLAGS", encoded);
         cmd.arg("build-bpf");
+        if scoped {
+            cmd.args(["--manifest-path", &manifest.to_string_lossy()]);
+        }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output()
     };
 
