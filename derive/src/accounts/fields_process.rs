@@ -585,6 +585,30 @@ pub(crate) fn process_fields(
 
         let is_init_field = attrs.is_init || attrs.init_if_needed;
 
+        // Enforce: Account<T> with raw seeds = [...] must use typed seeds instead.
+        // External account types (Mint, Token, etc.) with token:: or mint::
+        // attributes are exempt since they are defined in external crates.
+        if let FieldKind::Account { inner_ty } = &kind {
+            if attrs.seeds.is_some()
+                && attrs.typed_seeds.is_none()
+                && attrs.token_mint.is_none()
+                && attrs.mint_decimals.is_none()
+                && attrs.associated_token_mint.is_none()
+            {
+                return Err(syn::Error::new_spanned(
+                    field_name,
+                    format!(
+                        "raw `seeds = [...]` is not allowed on program accounts. \
+                         Add `#[seeds(...)]` to `{}` and use `{}::seeds(...)` instead.",
+                        quote::quote!(#inner_ty),
+                        quote::quote!(#inner_ty),
+                    ),
+                )
+                .to_compile_error()
+                .into());
+            }
+        }
+
         if let Some(seed_exprs) = &attrs.seeds {
             let bump_var = format_ident!("__bumps_{}", field_name);
 
@@ -881,6 +905,15 @@ pub(crate) fn process_fields(
                 ));
             }
 
+            // Arity check: number of args must match SEED_DYNAMIC_COUNT.
+            let arg_count = typed.args.len();
+            field_checks.push(quote! {
+                const _: () = assert!(
+                    <#type_path as quasar_lang::traits::HasSeeds>::SEED_DYNAMIC_COUNT == #arg_count,
+                    "typed seeds: wrong number of arguments"
+                );
+            });
+
             if all_seed_slices.len() > 15 {
                 return Err(syn::Error::new_spanned(
                     field_name,
@@ -1085,6 +1118,7 @@ pub(crate) fn process_fields(
             // prefix + dynamic args + bump
             let total_seed_count = typed.args.len() + 2;
             let mut seed_elements: Vec<proc_macro2::TokenStream> = Vec::new();
+            let mut has_uncapturable_seeds = false;
 
             // Prefix seed
             seed_elements.push(
@@ -1174,6 +1208,7 @@ pub(crate) fn process_fields(
                         typed_seed_slice_expr(arg, field_name_strings, instruction_args);
                     seed_elements
                         .push(quote! { quasar_lang::cpi::Seed::from(#seed_expr) });
+                    has_uncapturable_seeds = true;
                 }
             }
 
@@ -1182,12 +1217,18 @@ pub(crate) fn process_fields(
                 quote! { quasar_lang::cpi::Seed::from(&self.#bump_arr_field as &[u8]) },
             );
 
-            seeds_methods.push(quote! {
-                #[inline(always)]
-                pub fn #method_name(&self) -> [quasar_lang::cpi::Seed<'_>; #total_seed_count] {
-                    [#(#seed_elements),*]
-                }
-            });
+            // Only generate the CPI seed method when all seed components
+            // are captured in the Bumps struct. Field access expressions
+            // (e.g. config.namespace) are not capturable because the typed
+            // fields aren't available at Bumps-construction time.
+            if !has_uncapturable_seeds {
+                seeds_methods.push(quote! {
+                    #[inline(always)]
+                    pub fn #method_name(&self) -> [quasar_lang::cpi::Seed<'_>; #total_seed_count] {
+                        [#(#seed_elements),*]
+                    }
+                });
+            }
         }
 
         if is_init_field {

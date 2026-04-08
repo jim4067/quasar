@@ -56,3 +56,18 @@ pub struct IndexedAccount {
     pub index: u64,
     pub bump: u8,
 }
+
+#[account(discriminator = 9)]
+#[seeds(b"ns_config")]
+pub struct NamespaceConfig {
+    pub namespace: u32,
+    pub bump: u8,
+}
+
+#[account(discriminator = 10)]
+#[seeds(b"scoped", namespace: u32)]
+pub struct ScopedItem {
+    pub namespace: u32,
+    pub data: u64,
+    pub bump: u8,
+}

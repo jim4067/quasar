@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: typed seeds: wrong number of arguments
+  --> tests/compile_fail/seeds_wrong_arity.rs:13:10
+   |
+13 | #[derive(Accounts)]
+   |          ^^^^^^^^ evaluation of `<Bad<'info> as quasar_lang::traits::ParseAccountsUnchecked<'info>>::parse_unchecked::_` failed here
