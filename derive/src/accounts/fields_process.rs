@@ -957,10 +957,15 @@ pub(crate) fn process_fields(
 
             // Arity check: number of args must match SEED_DYNAMIC_COUNT.
             let arg_count = typed.args.len();
+            let type_name_str = quote!(#type_path).to_string();
+            let expected_msg = format!(
+                "{}::seeds() argument count mismatch (check #[seeds] definition on {})",
+                type_name_str, type_name_str,
+            );
             field_checks.push(quote! {
                 const _: () = assert!(
                     <#type_path as quasar_lang::traits::HasSeeds>::SEED_DYNAMIC_COUNT == #arg_count,
-                    "typed seeds: wrong number of arguments"
+                    #expected_msg,
                 );
             });
 
