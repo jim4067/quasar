@@ -28,7 +28,19 @@ impl Parse for SeedsAttr {
             Expr::Lit(ExprLit {
                 lit: Lit::ByteStr(b),
                 ..
-            }) => b.value(),
+            }) => {
+                let bytes = b.value();
+                if bytes.len() > 32 {
+                    return Err(syn::Error::new_spanned(
+                        b,
+                        format!(
+                            "seed prefix is {} bytes, exceeds MAX_SEED_LEN of 32",
+                            bytes.len()
+                        ),
+                    ));
+                }
+                bytes
+            }
             _ => {
                 return Err(syn::Error::new_spanned(
                     prefix_expr,
