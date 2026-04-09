@@ -493,32 +493,20 @@ pub(crate) fn process_fields(
                 }
             }
             FieldKind::InterfaceAccount { inner_ty } => {
+                // Owner and data checks are handled inside
+                // InterfaceAccount::from_account_view() via T::owners() and
+                // T::check(). The derive only needs to emit checks when
+                // skip_mut_checks is false (non-init path).
                 if !skip_mut_checks {
                     let field_name_str = field_name.to_string();
-                    let disc = debug_checked(
+                    let owner = debug_checked(
                         &field_name_str,
-                        quote! { <#inner_ty as quasar_lang::traits::AccountCheck>::check(#field_name.to_account_view()) },
-                        "Account check failed for interface account '{}': data may be \
-                         uninitialized or corrupted",
-                    );
-                    let owner_guard = debug_guard(
                         quote! {
-                            {
-                                let __owner = #field_name.to_account_view().owner();
-                                !quasar_lang::keys_eq(__owner, &quasar_spl::SPL_TOKEN_ID)
-                                    && !quasar_lang::keys_eq(__owner, &quasar_spl::TOKEN_2022_ID)
-                            }
+                            quasar_lang::accounts::interface_account::InterfaceAccount::<#inner_ty>::from_account_view(#field_name.to_account_view()).map(|_| ())
                         },
-                        quote! { ::alloc::format!(
-                            "Owner check failed for interface account '{}': not owned by SPL Token or Token-2022",
-                            #field_name_str
-                        ) },
-                        quote! { ProgramError::IllegalOwner },
+                        "Owner/data check failed for interface account '{}'",
                     );
-                    this_field_checks.push(quote! {
-                        #owner_guard
-                        #disc
-                    });
+                    this_field_checks.push(owner);
                 }
             }
             FieldKind::Sysvar { inner_ty } => {

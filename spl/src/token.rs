@@ -1,6 +1,6 @@
 use {
     crate::{
-        constants::{SPL_TOKEN_BYTES, SPL_TOKEN_ID},
+        constants::{SPL_TOKEN_BYTES, SPL_TOKEN_ID, TOKEN_2022_ID},
         instructions::TokenCpi,
         state::{MintAccountState, TokenAccountState},
     },
@@ -33,5 +33,21 @@ pub struct Mint {
     __view: AccountView,
 }
 impl_program_account!(Mint, SPL_TOKEN_ID, MintAccountState);
+
+impl quasar_lang::traits::Owners for Token {
+    #[inline(always)]
+    fn owners() -> &'static [Address] {
+        static OWNERS: [Address; 2] = [SPL_TOKEN_ID, TOKEN_2022_ID];
+        &OWNERS
+    }
+}
+
+impl quasar_lang::traits::Owners for Mint {
+    #[inline(always)]
+    fn owners() -> &'static [Address] {
+        static OWNERS: [Address; 2] = [SPL_TOKEN_ID, TOKEN_2022_ID];
+        &OWNERS
+    }
+}
 
 impl TokenCpi for Program<Token> {}
