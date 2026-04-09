@@ -63,7 +63,7 @@ capture_program_metrics() {
   local log_file
   log_file="$(mktemp)"
 
-  cargo build-sbf --manifest-path "$manifest_path"
+  cargo build-sbf --tools-version v1.52 --manifest-path "$manifest_path"
   cargo test -p "$package_name" -- --nocapture 2>&1 | tee "$log_file"
 
   while (($#)); do

@@ -1,5 +1,8 @@
 SHELL := /usr/bin/env bash
 NIGHTLY_TOOLCHAIN := nightly
+# platform-tools v1.52 ships Cargo 1.89 which supports Cargo.lock v4.
+# v1.51 ships Cargo 1.84 which does not, causing "duplicate lang item" errors.
+PLATFORM_TOOLS := v1.52
 
 # Test programs that produce SBF binaries
 SBF_TEST_PROGRAMS := tests/programs/test-misc tests/programs/test-errors \
@@ -113,11 +116,11 @@ build:
 build-sbf:
 	@for dir in $(SBF_EXAMPLES); do \
 		echo "Building $$dir"; \
-		cargo build-sbf --manifest-path "$$dir/Cargo.toml"; \
+		cargo build-sbf --tools-version $(PLATFORM_TOOLS) --manifest-path "$$dir/Cargo.toml"; \
 	done
 	@for dir in $(SBF_TEST_PROGRAMS); do \
 		echo "Building $$dir (with debug)"; \
-		cargo build-sbf --manifest-path "$$dir/Cargo.toml" --features debug,alloc; \
+		cargo build-sbf --tools-version $(PLATFORM_TOOLS) --manifest-path "$$dir/Cargo.toml" --features debug,alloc; \
 	done
 
 test:
