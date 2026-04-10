@@ -157,7 +157,9 @@ pub use {
     },
     constants::{ATA_PROGRAM_ID, SPL_TOKEN_ID, TOKEN_2022_ID},
     instructions::{initialize_account3, initialize_mint2, TokenCpi},
-    interface::{InterfaceAccount, TokenInterface},
+    interface::TokenInterface,
+    // Re-export from quasar_lang for backward compatibility.
+    quasar_lang::accounts::interface_account::InterfaceAccount,
     state::{COption, MintAccountState, TokenAccountState},
     token::{Mint, Token},
     token_2022::{Mint2022, Token2022},

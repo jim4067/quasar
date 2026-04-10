@@ -36,7 +36,17 @@ pub(crate) fn event(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as InstructionArgs);
     let input = parse_macro_input!(item as DeriveInput);
     let name = &input.ident;
-    let disc_bytes = &args.discriminator;
+    let disc_bytes = match &args.discriminator {
+        Some(d) => d,
+        None => {
+            return syn::Error::new_spanned(
+                &input.ident,
+                "#[event] requires `discriminator = [...]`",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
     let disc_len = disc_bytes.len();
 
     let fields_data = match &input.data {

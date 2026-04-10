@@ -13,6 +13,7 @@
 //!   `AccountView` slices
 //! - `AccountCheck` — runtime validation hook called during parsing
 //! - `CheckOwner` — verify an account's on-chain owner matches expectations
+//! - `Owners` — declare valid on-chain owners for interface account types
 //! - `AccountCount` — declare how many accounts a struct consumes
 //!
 //! **Access and dispatch** — provide uniform access to account data:
@@ -22,8 +23,6 @@
 //!   construction
 //! - `ZeroCopyDeref` — zero-copy `Deref`/`DerefMut` to `#[repr(C)]` account
 //!   layouts
-//! - `InterfaceResolve` — polymorphic dispatch for multi-program interface
-//!   accounts
 //! - `ProgramInterface` — check an address against multiple valid program IDs
 //!
 //! **Events** — `Event` supports dual emission (log-based and self-CPI).
@@ -240,14 +239,16 @@ impl<T: Owner> CheckOwner for T {
     }
 }
 
-/// Polymorphic zero-copy dispatch for interface account types.
+/// Declares the set of valid on-chain owners for interface account types.
 ///
-/// When an account can be owned by multiple programs with different layouts
-/// or behaviors, `InterfaceResolve` provides a way to dispatch to the
-/// correct resolved type based on the runtime owner.
-pub trait InterfaceResolve {
-    type Resolved<'a>;
-    fn resolve<'a>(view: &'a AccountView) -> Result<Self::Resolved<'a>, ProgramError>;
+/// Unlike [`Owner`] (single compile-time-known address), `Owners` returns
+/// a static slice of valid owner addresses for runtime multi-owner checking.
+///
+/// Implemented by: Manual `impl` for SPL token/mint types in `quasar-spl`.
+/// Used by: `InterfaceAccount<T>` to validate owner during parsing.
+pub trait Owners {
+    /// Static slice of valid owner program addresses.
+    fn owners() -> &'static [Address];
 }
 
 /// Marker trait for account types with a `#[seeds]` definition.

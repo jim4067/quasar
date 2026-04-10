@@ -35,6 +35,31 @@ use {
 };
 
 // ---------------------------------------------------------------------------
+// SerializeArg — compile-time dispatch for instruction arg serialization
+// ---------------------------------------------------------------------------
+
+/// Instruction argument serialization for the off-chain client.
+///
+/// Fixed-size types (`u64`, `bool`, `Option<T>`, custom `QuasarSerialize`)
+/// go through `InstructionArg::to_zc()` → raw bytes, guaranteeing the wire
+/// format matches the on-chain zero-copy layout exactly. Dynamic types
+/// (`DynBytes`, `DynVec`, `TailBytes`) use wincode's standard encoding.
+pub trait SerializeArg {
+    fn serialize_arg(&self) -> Vec<u8>;
+}
+
+/// Blanket impl for all fixed-size InstructionArg types.
+impl<T: crate::instruction_arg::InstructionArg> SerializeArg for T
+where
+    T::Zc: SchemaWrite<wincode::config::DefaultConfig, Src = T::Zc>,
+{
+    fn serialize_arg(&self) -> Vec<u8> {
+        let zc = self.to_zc();
+        wincode::serialize(&zc).expect("instruction arg serialization")
+    }
+}
+
+// ---------------------------------------------------------------------------
 // DynBytes<P> — length-prefixed raw byte buffer
 // ---------------------------------------------------------------------------
 
@@ -196,6 +221,79 @@ unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for TailBytes {
             bytes.push(b);
         }
         dst.write(TailBytes(bytes));
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SerializeArg impls for dynamic types (bypass InstructionArg blanket impl)
+// ---------------------------------------------------------------------------
+
+impl<P> SerializeArg for DynBytes<P>
+where
+    UseIntLen<P>: SeqLen<wincode::config::DefaultConfig>,
+{
+    fn serialize_arg(&self) -> Vec<u8> {
+        wincode::serialize(self).expect("DynBytes serialization")
+    }
+}
+
+impl<T, P> SerializeArg for DynVec<T, P>
+where
+    T: SchemaWrite<wincode::config::DefaultConfig, Src = T>,
+    UseIntLen<P>: SeqLen<wincode::config::DefaultConfig>,
+{
+    fn serialize_arg(&self) -> Vec<u8> {
+        wincode::serialize(self).expect("DynVec serialization")
+    }
+}
+
+impl SerializeArg for TailBytes {
+    fn serialize_arg(&self) -> Vec<u8> {
+        wincode::serialize(self).expect("TailBytes serialization")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OptionZc<Z> — fixed-size Option serialization matching on-chain ZC layout
+// ---------------------------------------------------------------------------
+
+use crate::instruction_arg::OptionZc;
+
+unsafe impl<Z, C: ConfigCore> SchemaWrite<C> for OptionZc<Z>
+where
+    Z: Copy,
+{
+    type Src = Self;
+
+    fn size_of(_src: &Self) -> WriteResult<usize> {
+        Ok(core::mem::size_of::<Self>())
+    }
+
+    fn write(mut writer: impl Writer, src: &Self) -> WriteResult<()> {
+        let bytes = unsafe {
+            core::slice::from_raw_parts(
+                src as *const Self as *const u8,
+                core::mem::size_of::<Self>(),
+            )
+        };
+        writer.write(bytes)?;
+        Ok(())
+    }
+}
+
+unsafe impl<'de, Z, C: ConfigCore> SchemaRead<'de, C> for OptionZc<Z>
+where
+    Z: Copy,
+{
+    type Dst = Self;
+
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self>) -> ReadResult<()> {
+        let bytes = reader.take_scoped(core::mem::size_of::<Self>())?;
+        // SAFETY: OptionZc<Z> is #[repr(C)] with alignment 1 (tag: u8 +
+        // MaybeUninit<Z>). The bytes from the reader are fully initialized.
+        let zc = unsafe { core::ptr::read_unaligned(bytes.as_ptr() as *const Self) };
+        dst.write(zc);
         Ok(())
     }
 }

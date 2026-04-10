@@ -248,36 +248,59 @@ impl Parse for AccountAttr {
     }
 }
 
-/// Parsed `#[instruction(discriminator = ...)]` attribute arguments.
+/// Parsed `#[instruction(...)]` attribute arguments.
+///
+/// Supports `discriminator = [...]` and/or `heap` in any order:
+/// - `#[instruction(discriminator = [0])]`
+/// - `#[instruction(discriminator = [0], heap)]`
+/// - `#[instruction(heap, discriminator = [0])]`
+/// - `#[instruction(heap)]` (discriminator optional for some contexts)
 pub(crate) struct InstructionArgs {
-    pub discriminator: Vec<LitInt>,
+    pub discriminator: Option<Vec<LitInt>>,
+    pub heap: bool,
 }
 
 impl Parse for InstructionArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let ident: Ident = input.parse()?;
-        if ident != "discriminator" {
-            return Err(syn::Error::new(ident.span(), "expected `discriminator`"));
-        }
-        let _: Token![=] = input.parse()?;
-        if input.peek(syn::token::Bracket) {
-            let content;
-            syn::bracketed!(content in input);
-            let lits = content.parse_terminated(LitInt::parse, Token![,])?;
-            let discriminator: Vec<LitInt> = lits.into_iter().collect();
-            if discriminator.is_empty() {
+        let mut discriminator = None;
+        let mut heap = false;
+
+        while !input.is_empty() {
+            let ident: Ident = input.parse()?;
+            if ident == "heap" {
+                heap = true;
+            } else if ident == "discriminator" {
+                let _: Token![=] = input.parse()?;
+                if input.peek(syn::token::Bracket) {
+                    let content;
+                    syn::bracketed!(content in input);
+                    let lits = content.parse_terminated(LitInt::parse, Token![,])?;
+                    let disc_bytes: Vec<LitInt> = lits.into_iter().collect();
+                    if disc_bytes.is_empty() {
+                        return Err(syn::Error::new(
+                            input.span(),
+                            "discriminator must have at least one byte",
+                        ));
+                    }
+                    discriminator = Some(disc_bytes);
+                } else {
+                    let lit: LitInt = input.parse()?;
+                    discriminator = Some(vec![lit]);
+                }
+            } else {
                 return Err(syn::Error::new(
-                    input.span(),
-                    "discriminator must have at least one byte",
+                    ident.span(),
+                    "expected `discriminator` or `heap`",
                 ));
             }
-            Ok(Self { discriminator })
-        } else {
-            let lit: LitInt = input.parse()?;
-            Ok(Self {
-                discriminator: vec![lit],
-            })
+            // consume optional trailing comma
+            let _ = input.parse::<Option<Token![,]>>();
         }
+
+        Ok(Self {
+            discriminator,
+            heap,
+        })
     }
 }
 
