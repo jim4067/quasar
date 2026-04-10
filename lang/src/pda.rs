@@ -15,6 +15,10 @@ use {solana_address::Address, solana_program_error::ProgramError};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 const PDA_MARKER: &[u8; 21] = b"ProgramDerivedAddress";
 
+/// Maximum number of slices in a PDA hash input: up to 17 seeds + bump + program_id + PDA_MARKER.
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+const MAX_PDA_SLICES: usize = 19;
+
 /// Verify that `expected` matches `sha256(seeds || program_id ||
 /// "ProgramDerivedAddress")`.
 ///
@@ -37,7 +41,7 @@ pub fn verify_program_address(
 
         // Build the input array: [seeds..., program_id, PDA_MARKER].
         // Max 17 seeds + program_id + marker = 19 entries.
-        let mut slices = core::mem::MaybeUninit::<[&[u8]; 19]>::uninit();
+        let mut slices = core::mem::MaybeUninit::<[&[u8]; MAX_PDA_SLICES]>::uninit();
         let sptr = slices.as_mut_ptr() as *mut &[u8];
 
         let mut i = 0;
@@ -107,7 +111,7 @@ pub fn based_try_find_program_address(
 
         // Build the input array: [seeds..., bump, program_id, PDA_MARKER].
         // Max 16 seeds + bump + program_id + marker = 19 entries.
-        let mut slices = core::mem::MaybeUninit::<[&[u8]; 19]>::uninit();
+        let mut slices = core::mem::MaybeUninit::<[&[u8]; MAX_PDA_SLICES]>::uninit();
         let sptr = slices.as_mut_ptr() as *mut &[u8];
 
         let mut i = 0;

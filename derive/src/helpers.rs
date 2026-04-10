@@ -543,9 +543,17 @@ pub(crate) fn strip_generics(ty: &Type) -> proc_macro2::TokenStream {
 /// Converts `PascalCase` to `snake_case` (e.g., `MakeEscrow` → `make_escrow`).
 pub(crate) fn pascal_to_snake(s: &str) -> String {
     let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
         if c.is_uppercase() && i > 0 {
-            result.push('_');
+            // Only insert underscore before an uppercase letter when the
+            // previous char is lowercase, OR the next char is lowercase
+            // (handles acronym runs like "HTTP" → "http" not "h_t_t_p").
+            let prev_lower = chars[i - 1].is_lowercase();
+            let next_lower = chars.get(i + 1).map_or(false, |n| n.is_lowercase());
+            if prev_lower || next_lower {
+                result.push('_');
+            }
         }
         result.push(c.to_lowercase().next().unwrap());
     }
