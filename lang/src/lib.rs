@@ -116,6 +116,7 @@ pub mod pda;
 pub mod pod;
 /// Marker types for dynamic fields (`String<N>`, `Vec<T, N>`) and codec
 /// helpers.
+/// Convenience re-exports for program code.
 pub mod prelude;
 /// Zero-allocation remaining accounts iterator.
 pub mod remaining;

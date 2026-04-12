@@ -299,4 +299,12 @@ mod quasar_test_misc {
     ) -> Result<(), ProgramError> {
         ctx.accounts.handler()
     }
+
+    #[instruction(discriminator = 57)]
+    pub fn dynamic_stack_cache(
+        ctx: Ctx<DynamicStackCache>,
+        new_name: String<8>,
+    ) -> Result<(), ProgramError> {
+        ctx.accounts.handler(new_name)
+    }
 }

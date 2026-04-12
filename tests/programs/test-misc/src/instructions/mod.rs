@@ -132,3 +132,6 @@ pub use option_address_none::*;
 
 pub mod interface_migration_check;
 pub use interface_migration_check::*;
+
+pub mod dynamic_stack_cache;
+pub use dynamic_stack_cache::*;
