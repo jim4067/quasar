@@ -401,7 +401,9 @@ mod tests {
     fn load_from_bytes_clamps_to_n() {
         let mut s = PodString::<3>::default();
         // Source says len=10 but N=3, should clamp
-        let bytes = [10u8, b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j'];
+        let bytes = [
+            10u8, b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j',
+        ];
         let consumed = s.load_from_bytes(&bytes);
         assert_eq!(consumed, 4); // 1 + 3
         assert_eq!(s.len(), 3);

@@ -33,9 +33,8 @@ pub use {
         return_data::set_return_data,
         sysvars::{clock::Clock, rent::Rent},
         traits::{
-            AccountCheck, AccountCount, AsAccountView, CheckOwner, Discriminator, Event,
-            HasSeeds, Id, Owner, Owners, ParseAccounts, ProgramInterface, Space, StaticView,
-            ZeroCopyDeref,
+            AccountCheck, AccountCount, AsAccountView, CheckOwner, Discriminator, Event, HasSeeds,
+            Id, Owner, Owners, ParseAccounts, ProgramInterface, Space, StaticView, ZeroCopyDeref,
         },
     },
     core::ops::{Deref, DerefMut},

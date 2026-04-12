@@ -2,9 +2,9 @@
 //!
 //! `PodVec<T, N>` stores up to `N` elements of type `T` with a `PodU16` length
 //! prefix. When used in `#[account]` structs (as `Vec<T, N>`), the derive macro
-//! generates dynamic sizing — account data stores only actual elements, not full
-//! capacity. Mutations go through a `DynGuard` RAII wrapper that loads into a
-//! stack-local copy and auto-saves on drop.
+//! generates dynamic sizing — account data stores only actual elements, not
+//! full capacity. Mutations go through a `DynGuard` RAII wrapper that loads
+//! into a stack-local copy and auto-saves on drop.
 //!
 //! The tradeoff is rent: the full `N * size_of::<T>()` bytes are always
 //! allocated. Use `PodVec` for small, frequently-mutated collections
@@ -330,7 +330,8 @@ impl<T: Copy, const N: usize> PodVec<T, N> {
         2 + data_bytes
     }
 
-    /// Total bytes this field occupies when serialized: `2 + len * size_of::<T>()`.
+    /// Total bytes this field occupies when serialized: `2 + len *
+    /// size_of::<T>()`.
     #[inline(always)]
     pub fn serialized_len(&self) -> usize {
         2 + self.len() * core::mem::size_of::<T>()

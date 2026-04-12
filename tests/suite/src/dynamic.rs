@@ -228,7 +228,11 @@ fn test_dynamic_account_invalid_utf8_accepted() {
     let instruction: Instruction = DynamicAccountCheckInstruction { account }.into();
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 #[test]
@@ -764,7 +768,11 @@ fn test_mixed_account_invalid_utf8_label_accepted() {
     let instruction: Instruction = MixedAccountCheckInstruction { account }.into();
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 // ============================================================================
@@ -937,7 +945,11 @@ fn test_small_prefix_invalid_utf8_tag_accepted() {
     let instruction: Instruction = SmallPrefixCheckInstruction { account }.into();
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 #[test]
@@ -1399,9 +1411,7 @@ fn test_stack_cache_grow_name_preserves_tags() {
     let payer_account = Account::new(10_000_000_000, 0, &system_program);
 
     // Grow name from "hi" (2) to "world" (5) — triggers realloc
-    let instruction = build_stack_cache_instruction(
-        account, payer, system_program, b"world",
-    );
+    let instruction = build_stack_cache_instruction(account, payer, system_program, b"world");
     let result = mollusk.process_instruction(
         &instruction,
         &[
@@ -1425,10 +1435,8 @@ fn test_stack_cache_grow_name_preserves_tags() {
     assert_eq!(&result_data[2..7], b"world");
     // Tags preserved at new offset (shifted because name grew)
     let tags_offset = 7; // 1(disc) + 1(name prefix) + 5(name data)
-    let tags_count = u16::from_le_bytes([
-        result_data[tags_offset],
-        result_data[tags_offset + 1],
-    ]) as usize;
+    let tags_count =
+        u16::from_le_bytes([result_data[tags_offset], result_data[tags_offset + 1]]) as usize;
     assert_eq!(tags_count, 1);
     assert_eq!(
         &result_data[tags_offset + 2..tags_offset + 2 + 32],
@@ -1458,9 +1466,7 @@ fn test_stack_cache_same_length_content_change() {
     let payer_account = Account::new(10_000_000_000, 0, &system_program);
 
     // Change name to "world" (same length — 5 bytes, no realloc)
-    let instruction = build_stack_cache_instruction(
-        account, payer, system_program, b"world",
-    );
+    let instruction = build_stack_cache_instruction(account, payer, system_program, b"world");
     let result = mollusk.process_instruction(
         &instruction,
         &[
@@ -1706,7 +1712,11 @@ fn test_adversarial_utf8_truncated_2byte_sequence_accepted() {
     let instruction: Instruction = DynamicAccountCheckInstruction { account }.into();
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "truncated 2-byte UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "truncated 2-byte UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 /// Truncated 3-byte UTF-8 sequence: euro sign is E2 82 AC, give only E2 82.
@@ -1730,7 +1740,11 @@ fn test_adversarial_utf8_truncated_3byte_sequence_accepted() {
     let instruction: Instruction = DynamicAccountCheckInstruction { account }.into();
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "truncated 3-byte UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "truncated 3-byte UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 /// Overlong encoding: C0 80 is an overlong encoding of NUL (invalid UTF-8).
@@ -1754,7 +1768,11 @@ fn test_adversarial_utf8_overlong_nul_accepted() {
     let instruction: Instruction = DynamicAccountCheckInstruction { account }.into();
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "overlong UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "overlong UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 /// Valid 2-byte UTF-8 at field boundary: name = "é" (C3 A9) = 2 bytes
@@ -1829,7 +1847,11 @@ fn test_adversarial_utf8_surrogate_half_accepted() {
     let instruction: Instruction = DynamicAccountCheckInstruction { account }.into();
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "surrogate half accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "surrogate half accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 // ============================================================================
@@ -2606,7 +2628,11 @@ fn test_tail_str_invalid_utf8_accepted() {
     let instruction = build_tail_str_check_instruction(account, 2);
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "invalid UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 #[test]
@@ -2631,7 +2657,11 @@ fn test_tail_str_truncated_multibyte_accepted() {
     let instruction = build_tail_str_check_instruction(account, 2);
     let result = mollusk.process_instruction(&instruction, &[(account, account_data)]);
 
-    assert!(result.program_result.is_ok(), "truncated multibyte UTF-8 accepted (re-validation removed for CU savings): {:?}", result.program_result);
+    assert!(
+        result.program_result.is_ok(),
+        "truncated multibyte UTF-8 accepted (re-validation removed for CU savings): {:?}",
+        result.program_result
+    );
 }
 
 #[test]
