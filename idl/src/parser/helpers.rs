@@ -23,7 +23,7 @@ pub fn to_camel_case(s: &str) -> String {
 /// Map a Rust type name string to an IDL type.
 pub fn map_type(rust_type: &str) -> IdlType {
     match rust_type {
-        "Address" | "Pubkey" => IdlType::Primitive("publicKey".to_string()),
+        "Address" | "Pubkey" => IdlType::Primitive("pubkey".to_string()),
         "u8" | "u16" | "u32" | "u64" | "u128" | "i8" | "i16" | "i32" | "i64" | "i128" => {
             IdlType::Primitive(rust_type.to_string())
         }
