@@ -307,5 +307,4 @@ mod quasar_test_misc {
     ) -> Result<(), ProgramError> {
         ctx.accounts.handler(new_name)
     }
-
 }
