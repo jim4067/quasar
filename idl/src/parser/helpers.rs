@@ -38,10 +38,10 @@ pub fn map_type(rust_type: &str) -> IdlType {
 
 /// Map a `syn::Type` to an `IdlType`, detecting dynamic fields:
 ///
-/// - `String<'a, N>` / `String<N>` → `IdlType::DynString { maxLength: N }`
-/// - `Vec<'a, T, N>` / `Vec<T, N>` → `IdlType::DynVec { items: T, maxLength: N
-///   }`
+/// - `String<N>` / `String<'a, N>` / `PodString<N>` → `IdlType::DynString`
+/// - `Vec<T, N>` / `Vec<'a, T, N>` / `PodVec<T, N>` → `IdlType::DynVec`
 ///
+/// Leading lifetime parameters (e.g. `'a`) are skipped transparently.
 /// Falls back to `simple_type_name + map_type` for everything else.
 pub fn map_type_from_syn(ty: &syn::Type) -> IdlType {
     let inner = match ty {
@@ -70,8 +70,14 @@ pub fn map_type_from_syn(ty: &syn::Type) -> IdlType {
                 let mut iter = args.args.iter();
 
                 if ident == "String" || ident == "PodString" {
-                    // String<N> / PodString<N> → u8 prefix (1 byte)
+                    // String<N> / String<'a, N> → u8 prefix (1 byte)
+                    // Skip an optional leading lifetime parameter.
                     let first = iter.next();
+                    let first = if matches!(first, Some(syn::GenericArgument::Lifetime(_))) {
+                        iter.next()
+                    } else {
+                        first
+                    };
                     if let Some(max_length) = first.and_then(extract_const_usize) {
                         return IdlType::DynString {
                             string: IdlDynString {
@@ -81,7 +87,7 @@ pub fn map_type_from_syn(ty: &syn::Type) -> IdlType {
                         };
                     }
                 } else if ident == "Vec" || ident == "PodVec" {
-                    // Vec<T, N> / PodVec<T, N> → u16 prefix (2 bytes)
+                    // Vec<T, N> / Vec<'a, T, N> → u16 prefix (2 bytes)
                     let first = iter.next();
                     if let Some(result) = parse_pod_vec_args(first, &mut iter) {
                         return result;
@@ -206,6 +212,12 @@ fn parse_pod_vec_args<'a>(
     first: Option<&'a syn::GenericArgument>,
     rest: &mut impl Iterator<Item = &'a syn::GenericArgument>,
 ) -> Option<IdlType> {
+    // Skip an optional leading lifetime parameter (e.g. Vec<'a, T, N>).
+    let first = if matches!(first, Some(syn::GenericArgument::Lifetime(_))) {
+        rest.next()
+    } else {
+        first
+    };
     let syn::GenericArgument::Type(elem_ty) = first? else {
         return None;
     };

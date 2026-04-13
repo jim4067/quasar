@@ -280,6 +280,36 @@ fn map_type_defined() {
 }
 
 // ---------------------------------------------------------------------------
+// helpers — map_type_from_syn (lifetime-parameterized forms)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn map_type_from_syn_string_with_lifetime() {
+    // String<'a, 32> must parse the same as String<32>: DynString with 32 max, u8 prefix.
+    let ty: syn::Type = syn::parse_str("String<'a, 32>").unwrap();
+    assert!(
+        matches!(
+            helpers::map_type_from_syn(&ty),
+            IdlType::DynString { string } if string.max_length == 32 && string.prefix_bytes == 1
+        ),
+        "String<'a, N> must be DynString with u8 prefix"
+    );
+}
+
+#[test]
+fn map_type_from_syn_vec_with_lifetime() {
+    // Vec<'a, u64, 10> must parse the same as Vec<u64, 10>: DynVec<u64> with 10 max, u16 prefix.
+    let ty: syn::Type = syn::parse_str("Vec<'a, u64, 10>").unwrap();
+    assert!(
+        matches!(
+            helpers::map_type_from_syn(&ty),
+            IdlType::DynVec { vec } if vec.max_length == 10 && vec.prefix_bytes == 2
+        ),
+        "Vec<'a, T, N> must be DynVec with u16 prefix"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Discriminator collision detection (tested via build_idl)
 // ---------------------------------------------------------------------------
 
@@ -1131,8 +1161,12 @@ fn rust_codegen_cargo_toml() {
     let toml = generate_cargo_toml("my-program", "0.1.0", false);
     assert!(toml.contains("name = \"my-program-client\""), "{toml}");
     assert!(toml.contains("version = \"0.1.0\""), "{toml}");
-    assert!(toml.contains("quasar-lang"), "{toml}");
-    assert!(toml.contains("wincode"), "{toml}");
+    // Git dep so source-build users get a quasar-lang that matches their CLI.
+    assert!(toml.contains("blueshift-gg/quasar"), "quasar-lang must be a git dep: {toml}");
+    // Exact-pinned to avoid the wincode 0.4/0.5 split (solana-address >= 2.3
+    // depends on wincode 0.5, which conflicts with the quasar-lang 0.4 binding).
+    assert!(toml.contains("=0.4.9"), "wincode must be exact-pinned: {toml}");
+    assert!(toml.contains("=2.2.0"), "solana-address must be exact-pinned: {toml}");
 }
 
 // ---------------------------------------------------------------------------

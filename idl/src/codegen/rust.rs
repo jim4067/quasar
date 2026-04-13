@@ -1,14 +1,22 @@
 use {
     crate::types::{Idl, IdlAccountItem, IdlField, IdlSeed, IdlType},
-    std::{collections::HashMap, fmt::Write},
+    std::collections::{HashMap, HashSet},
+    std::fmt::Write,
 };
 
 /// Generate Cargo.toml content for the standalone client crate.
+///
+/// `quasar-lang` is sourced from the GitHub master branch rather than
+/// crates.io so that source-build users always get a `quasar-lang` that
+/// matches the CLI they built. The wincode and solana-address versions are
+/// exact-pinned to avoid the wincode 0.4/0.5 split (`solana-address >= 2.3`
+/// depends on wincode 0.5, but the generated code and quasar-lang both
+/// target wincode 0.4).
 pub fn generate_cargo_toml(name: &str, version: &str, has_pdas: bool) -> String {
     let solana_address = if has_pdas {
-        r#"solana-address = { version = "2.2", features = ["curve25519"] }"#
+        r#"solana-address = { version = "=2.2.0", features = ["curve25519"] }"#
     } else {
-        r#"solana-address = "2.2""#
+        r#"solana-address = "=2.2.0""#
     };
     format!(
         r#"[package]
@@ -17,8 +25,8 @@ version = "{version}"
 edition = "2021"
 
 [dependencies]
-quasar-lang = "0.0"
-wincode = {{ version = "0.4", features = ["derive"] }}
+quasar-lang = {{ git = "https://github.com/blueshift-gg/quasar", branch = "master" }}
+wincode = {{ version = "=0.4.9", features = ["derive"] }}
 {solana_address}
 solana-instruction = "3"
 "#,
@@ -435,7 +443,7 @@ fn emit_single_instruction(
         for arg in &ix.args {
             writeln!(
                 out,
-                "        wincode::serialize_into(&mut data, &ix.{}).unwrap();",
+                "        wincode::serialize_into(&mut data, &ix.{}).expect(\"serialization into Vec<u8> is infallible\");",
                 camel_to_snake(&arg.name)
             )
             .expect("write to String");
@@ -585,7 +593,9 @@ fn emit_discriminated_module<T: DiscriminatedItem>(
     // Individual files
     for item in &with_fields {
         let snake = pascal_to_snake(item.name());
-        let fields = type_map.get(item.name()).unwrap();
+        let fields = type_map
+            .get(item.name())
+            .expect("invariant: with_fields only contains items present in type_map");
         let content =
             emit_single_state_or_event(item.name(), item.discriminator(), fields, kind, type_map);
         item_files.push((snake, content));
@@ -763,7 +773,7 @@ struct PdaInfo {
 
 fn collect_pdas(idl: &Idl) -> Vec<PdaInfo> {
     let mut pdas: Vec<PdaInfo> = Vec::new();
-    let mut seen_seeds: Vec<Vec<IdlSeed>> = Vec::new();
+    let mut seen_seeds: HashSet<Vec<IdlSeed>> = HashSet::new();
 
     for ix in &idl.instructions {
         for account in &ix.accounts {
@@ -772,13 +782,11 @@ fn collect_pdas(idl: &Idl) -> Vec<PdaInfo> {
                     continue;
                 }
 
-                // Dedup by seed identity (PartialEq on IdlSeed). When two
-                // instructions name the same PDA differently, the first
-                // occurrence's field name wins for the generated function name.
-                if seen_seeds.contains(&pda.seeds) {
+                // Dedup by seed identity. When two instructions name the same
+                // PDA differently, the first occurrence's field name wins.
+                if !seen_seeds.insert(pda.seeds.clone()) {
                     continue;
                 }
-                seen_seeds.push(pda.seeds.clone());
 
                 pdas.push(PdaInfo {
                     field_name: camel_to_snake(&account.name),
@@ -796,7 +804,7 @@ fn format_const_seed_display(value: &[u8]) -> String {
     if value.iter().all(|b| b.is_ascii_graphic() || *b == b' ') {
         format!("b\"{}\"", String::from_utf8_lossy(value))
     } else {
-        let byte_list: Vec<String> = value.iter().map(|b| format!("{}", b)).collect();
+        let byte_list: Vec<String> = value.iter().map(|b| b.to_string()).collect();
         format!("&[{}]", byte_list.join(", "))
     }
 }
@@ -1114,7 +1122,7 @@ fn snake_to_pascal(s: &str) -> String {
             let mut chars = word.chars();
             match chars.next() {
                 None => String::new(),
-                Some(c) => c.to_uppercase().to_string() + &chars.collect::<String>(),
+                Some(c) => c.to_uppercase().to_string() + chars.as_str(),
             }
         })
         .collect()
@@ -1124,16 +1132,18 @@ fn snake_to_pascal(s: &str) -> String {
 /// "http_server") by checking adjacent character case.
 fn pascal_to_snake(s: &str) -> String {
     let mut result = String::with_capacity(s.len() + 4);
-    let chars: Vec<char> = s.chars().collect();
-    for (i, &c) in chars.iter().enumerate() {
-        if c.is_uppercase() && i > 0 {
-            let prev_lower = chars[i - 1].is_lowercase();
-            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+    let mut prev: Option<char> = None;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_uppercase() && prev.is_some() {
+            let prev_lower = prev.is_some_and(|p| p.is_lowercase());
+            let next_lower = chars.peek().is_some_and(|n| n.is_lowercase());
             if prev_lower || next_lower {
                 result.push('_');
             }
         }
         result.push(c.to_ascii_lowercase());
+        prev = Some(c);
     }
     result
 }

@@ -64,7 +64,7 @@ pub struct IdlPda {
     pub seeds: Vec<IdlSeed>,
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum IdlSeed {
     #[serde(rename = "const")]
