@@ -6,14 +6,14 @@ mod attrs;
 mod descriptors;
 pub(crate) mod emit;
 mod instruction_args;
-mod parse;
+mod plan;
 pub(crate) mod seeds;
 pub(crate) mod semantics;
 
 pub(crate) use instruction_args::InstructionArg;
 use {
     instruction_args::{generate_instruction_arg_extraction, parse_struct_instruction_args},
-    parse::build_parse_parts,
+    plan::build_accounts_plan,
     proc_macro::TokenStream,
     quote::{format_ident, quote},
     syn::{parse_macro_input, parse_quote, Data, DeriveInput, Fields, GenericParam},
@@ -108,16 +108,16 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
         bumps_name: bumps_name.clone(),
     };
 
-    let parse_parts = match build_parse_parts(&semantics, &emit_cx) {
+    let accounts_plan = match build_accounts_plan(&semantics, &emit_cx) {
         Ok(parts) => parts,
         Err(e) => return e.to_compile_error().into(),
     };
-    let parse::ParseParts {
+    let plan::AccountsPlan {
         parse_steps,
         count_expr,
         typed_seed_asserts,
         parse_body,
-    } = parse_parts;
+    } = accounts_plan;
     let bumps_struct = emit::emit_bump_struct_def(&semantics, &emit_cx);
     let epilogue_method = match emit::emit_epilogue(&semantics) {
         Ok(ts) => ts,
