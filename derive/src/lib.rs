@@ -18,6 +18,7 @@ use proc_macro::TokenStream;
 
 mod account;
 mod accounts;
+mod client_macro;
 mod declare_program;
 mod error_code;
 mod event;

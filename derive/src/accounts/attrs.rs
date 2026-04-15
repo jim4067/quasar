@@ -107,87 +107,87 @@ fn lower_directive(directive: ParsedDirective) -> syn::Result<AccountDirective> 
     }
 
     let path = directive_path(&directive);
-    let names = path_names(path);
+    let names = path_idents(path);
     match names.as_slice() {
-        [name] if name == "init" => expect_bare(directive, AccountDirective::Init),
-        [name] if name == "init_if_needed" => {
+        [name] if *name == "init" => expect_bare(directive, AccountDirective::Init),
+        [name] if *name == "init_if_needed" => {
             expect_bare(directive, AccountDirective::InitIfNeeded)
         }
-        [name] if name == "dup" => expect_bare(directive, AccountDirective::Dup),
-        [name] if name == "close" => Ok(AccountDirective::Close(expect_ident_value(directive)?)),
-        [name] if name == "payer" => Ok(AccountDirective::Payer(expect_ident_value(directive)?)),
-        [name] if name == "space" => Ok(AccountDirective::Space(expect_expr_value(directive)?)),
-        [name] if name == "has_one" => {
+        [name] if *name == "dup" => expect_bare(directive, AccountDirective::Dup),
+        [name] if *name == "close" => Ok(AccountDirective::Close(expect_ident_value(directive)?)),
+        [name] if *name == "payer" => Ok(AccountDirective::Payer(expect_ident_value(directive)?)),
+        [name] if *name == "space" => Ok(AccountDirective::Space(expect_expr_value(directive)?)),
+        [name] if *name == "has_one" => {
             let error = directive.error.clone();
             Ok(AccountDirective::HasOne(
                 expect_ident_value_without_error(directive)?,
                 error,
             ))
         }
-        [name] if name == "constraint" => {
+        [name] if *name == "constraint" => {
             let error = directive.error.clone();
             Ok(AccountDirective::Constraint(
                 expect_expr_value_without_error(directive)?,
                 error,
             ))
         }
-        [name] if name == "address" => {
+        [name] if *name == "address" => {
             let error = directive.error.clone();
             Ok(AccountDirective::Address(
                 expect_expr_value_without_error(directive)?,
                 error,
             ))
         }
-        [name] if name == "seeds" => lower_seeds_directive(directive),
-        [name] if name == "bump" => Ok(AccountDirective::Bump(expect_optional_expr(directive)?)),
-        [name] if name == "sweep" => Ok(AccountDirective::Sweep(expect_ident_value(directive)?)),
-        [ns] if ns == "realloc" => Ok(AccountDirective::Realloc(expect_expr_value(directive)?)),
-        [ns, sub] if ns == "realloc" && sub == "payer" => Ok(AccountDirective::ReallocPayer(
+        [name] if *name == "seeds" => lower_seeds_directive(directive),
+        [name] if *name == "bump" => Ok(AccountDirective::Bump(expect_optional_expr(directive)?)),
+        [name] if *name == "sweep" => Ok(AccountDirective::Sweep(expect_ident_value(directive)?)),
+        [ns] if *ns == "realloc" => Ok(AccountDirective::Realloc(expect_expr_value(directive)?)),
+        [ns, sub] if *ns == "realloc" && *sub == "payer" => Ok(AccountDirective::ReallocPayer(
             expect_ident_value(directive)?,
         )),
-        [ns, sub] if ns == "token" && sub == "mint" => {
+        [ns, sub] if *ns == "token" && *sub == "mint" => {
             Ok(AccountDirective::TokenMint(expect_ident_value(directive)?))
         }
-        [ns, sub] if ns == "token" && sub == "authority" => Ok(AccountDirective::TokenAuthority(
-            expect_ident_value(directive)?,
-        )),
-        [ns, sub] if ns == "token" && sub == "token_program" => Ok(
+        [ns, sub] if *ns == "token" && *sub == "authority" => Ok(
+            AccountDirective::TokenAuthority(expect_ident_value(directive)?),
+        ),
+        [ns, sub] if *ns == "token" && *sub == "token_program" => Ok(
             AccountDirective::TokenTokenProgram(expect_ident_value(directive)?),
         ),
-        [ns, sub] if ns == "mint" && sub == "decimals" => Ok(AccountDirective::MintDecimals(
+        [ns, sub] if *ns == "mint" && *sub == "decimals" => Ok(AccountDirective::MintDecimals(
             expect_expr_value(directive)?,
         )),
-        [ns, sub] if ns == "mint" && sub == "authority" => Ok(AccountDirective::MintInitAuthority(
-            expect_ident_value(directive)?,
-        )),
-        [ns, sub] if ns == "mint" && sub == "freeze_authority" => Ok(
+        [ns, sub] if *ns == "mint" && *sub == "authority" => Ok(
+            AccountDirective::MintInitAuthority(expect_ident_value(directive)?),
+        ),
+        [ns, sub] if *ns == "mint" && *sub == "freeze_authority" => Ok(
             AccountDirective::MintFreezeAuthority(expect_ident_value(directive)?),
         ),
-        [ns, sub] if ns == "mint" && sub == "token_program" => Ok(
+        [ns, sub] if *ns == "mint" && *sub == "token_program" => Ok(
             AccountDirective::MintTokenProgram(expect_ident_value(directive)?),
         ),
-        [ns, sub] if ns == "associated_token" && sub == "mint" => Ok(
+        [ns, sub] if *ns == "associated_token" && *sub == "mint" => Ok(
             AccountDirective::AssociatedTokenMint(expect_ident_value(directive)?),
         ),
-        [ns, sub] if ns == "associated_token" && sub == "authority" => Ok(
+        [ns, sub] if *ns == "associated_token" && *sub == "authority" => Ok(
             AccountDirective::AssociatedTokenAuthority(expect_ident_value(directive)?),
         ),
-        [ns, sub] if ns == "associated_token" && sub == "token_program" => Ok(
+        [ns, sub] if *ns == "associated_token" && *sub == "token_program" => Ok(
             AccountDirective::AssociatedTokenTokenProgram(expect_ident_value(directive)?),
         ),
-        [ns, sub_key] if ns == "realloc" => Err(syn::Error::new(
+        [ns, sub_key] if *ns == "realloc" => Err(syn::Error::new(
             path.segments.last().expect("non-empty path").ident.span(),
             format!("unknown realloc attribute: `realloc::{sub_key}`"),
         )),
-        [ns, sub_key] if ns == "token" => Err(syn::Error::new(
+        [ns, sub_key] if *ns == "token" => Err(syn::Error::new(
             path.segments.last().expect("non-empty path").ident.span(),
             format!("unknown token attribute: `token::{sub_key}`"),
         )),
-        [ns, sub_key] if ns == "mint" => Err(syn::Error::new(
+        [ns, sub_key] if *ns == "mint" => Err(syn::Error::new(
             path.segments.last().expect("non-empty path").ident.span(),
             format!("unknown mint attribute: `mint::{sub_key}`"),
         )),
-        [ns, sub_key] if ns == "associated_token" => Err(syn::Error::new(
+        [ns, sub_key] if *ns == "associated_token" => Err(syn::Error::new(
             path.segments.last().expect("non-empty path").ident.span(),
             format!("unknown associated_token attribute: `associated_token::{sub_key}`"),
         )),
@@ -338,10 +338,10 @@ fn join_directive(directive: &ParsedDirective) -> String {
     }
 }
 
-fn path_names(path: &Path) -> Vec<String> {
+fn path_idents(path: &Path) -> Vec<&syn::Ident> {
     path.segments
         .iter()
-        .map(|segment| segment.ident.to_string())
+        .map(|segment| &segment.ident)
         .collect()
 }
 

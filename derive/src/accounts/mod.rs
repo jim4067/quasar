@@ -135,7 +135,7 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
     // --- Client macro ---
 
     let descriptors = descriptors::describe_accounts(&semantics);
-    let client_macro = quasar_client::generate_accounts_macro(name, &descriptors);
+    let client_macro = crate::client_macro::generate_accounts_macro(name, &descriptors);
 
     // --- Instruction arg extraction (struct-level #[instruction(...)]) ---
 

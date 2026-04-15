@@ -173,19 +173,14 @@ pub(crate) fn emit_instruction_arg_seed_bytes(
     expr: &syn::Expr,
     ty: &syn::Type,
 ) -> proc_macro2::TokenStream {
-    let type_name = match ty {
-        syn::Type::Path(tp) => tp
-            .path
-            .segments
-            .last()
-            .map(|s| s.ident.to_string())
-            .unwrap_or_default(),
-        _ => String::new(),
-    };
+    let is_address_like = matches!(ty, syn::Type::Path(tp)
+        if tp.path.segments.last().is_some_and(|s| s.ident == "Address" || s.ident == "Pubkey")
+    );
 
-    match type_name.as_str() {
-        "Address" | "Pubkey" => quote! { #expr.as_ref() },
-        _ => quote! { &#expr.to_le_bytes() },
+    if is_address_like {
+        quote! { #expr.as_ref() }
+    } else {
+        quote! { &#expr.to_le_bytes() }
     }
 }
 

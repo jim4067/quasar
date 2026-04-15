@@ -1,3 +1,4 @@
+pub(crate) use quasar_schema::{pascal_to_snake, snake_to_pascal};
 use {
     quote::quote,
     syn::{
@@ -184,34 +185,6 @@ pub(crate) fn strip_generics(ty: &Type) -> proc_macro2::TokenStream {
     }
 }
 
-pub(crate) fn pascal_to_snake(s: &str) -> String {
-    let mut result = String::new();
-    let chars: Vec<char> = s.chars().collect();
-    for (i, &c) in chars.iter().enumerate() {
-        if c.is_uppercase() && i > 0 {
-            let prev_lower = chars[i - 1].is_lowercase();
-            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
-            if prev_lower || next_lower {
-                result.push('_');
-            }
-        }
-        result.push(c.to_lowercase().next().unwrap());
-    }
-    result
-}
-
-pub(crate) fn snake_to_pascal(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(c) => c.to_uppercase().to_string() + &chars.collect::<String>(),
-            }
-        })
-        .collect()
-}
-
 fn extract_const_usize(arg: &GenericArgument) -> Option<usize> {
     if let GenericArgument::Const(Expr::Lit(ExprLit {
         lit: Lit::Int(lit_int),
@@ -255,12 +228,16 @@ fn parse_prefix_arg(arg: &GenericArgument) -> Option<usize> {
     match arg {
         GenericArgument::Type(Type::Path(type_path)) => {
             if let Some(seg) = type_path.path.segments.last() {
-                match seg.ident.to_string().as_str() {
-                    "u8" => Some(1),
-                    "u16" => Some(2),
-                    "u32" => Some(4),
-                    "u64" => Some(8),
-                    _ => None,
+                if seg.ident == "u8" {
+                    Some(1)
+                } else if seg.ident == "u16" {
+                    Some(2)
+                } else if seg.ident == "u32" {
+                    Some(4)
+                } else if seg.ident == "u64" {
+                    Some(8)
+                } else {
+                    None
                 }
             } else {
                 None
@@ -345,32 +322,33 @@ pub(crate) fn zc_assign_from_value(field_name: &Ident, ty: &Type) -> proc_macro2
 fn pod_alias_type(ty: &Type, accept_pod_aliases: bool) -> Option<proc_macro2::TokenStream> {
     if let Type::Path(type_path) = ty {
         if let Some(seg) = type_path.path.segments.last() {
-            match seg.ident.to_string().as_str() {
-                "String" | "PodString" if accept_pod_aliases || seg.ident == "String" => {
-                    if let PathArguments::AngleBracketed(ab) = &seg.arguments {
-                        let mut it = ab.args.iter();
-                        if let Some(n_arg) = it.next() {
-                            let pfx: usize = it.next().and_then(parse_prefix_arg).unwrap_or(1);
-                            return Some(quote! { quasar_lang::pod::PodString<#n_arg, #pfx> });
-                        }
-                    }
-                    if accept_pod_aliases {
-                        return Some(quote! { quasar_lang::pod::PodString });
-                    }
-                }
-                "Vec" | "PodVec" if accept_pod_aliases || seg.ident == "Vec" => {
-                    if let PathArguments::AngleBracketed(ab) = &seg.arguments {
-                        let mut it = ab.args.iter();
-                        if let (Some(t_arg), Some(n_arg)) = (it.next(), it.next()) {
-                            let pfx: usize = it.next().and_then(parse_prefix_arg).unwrap_or(2);
-                            return Some(quote! { quasar_lang::pod::PodVec<#t_arg, #n_arg, #pfx> });
-                        }
-                    }
-                    if accept_pod_aliases {
-                        return Some(quote! { quasar_lang::pod::PodVec });
+            let is_string = (seg.ident == "String" || seg.ident == "PodString")
+                && (accept_pod_aliases || seg.ident == "String");
+            let is_vec = (seg.ident == "Vec" || seg.ident == "PodVec")
+                && (accept_pod_aliases || seg.ident == "Vec");
+
+            if is_string {
+                if let PathArguments::AngleBracketed(ab) = &seg.arguments {
+                    let mut it = ab.args.iter();
+                    if let Some(n_arg) = it.next() {
+                        let pfx: usize = it.next().and_then(parse_prefix_arg).unwrap_or(1);
+                        return Some(quote! { quasar_lang::pod::PodString<#n_arg, #pfx> });
                     }
                 }
-                _ => {}
+                if accept_pod_aliases {
+                    return Some(quote! { quasar_lang::pod::PodString });
+                }
+            } else if is_vec {
+                if let PathArguments::AngleBracketed(ab) = &seg.arguments {
+                    let mut it = ab.args.iter();
+                    if let (Some(t_arg), Some(n_arg)) = (it.next(), it.next()) {
+                        let pfx: usize = it.next().and_then(parse_prefix_arg).unwrap_or(2);
+                        return Some(quote! { quasar_lang::pod::PodVec<#t_arg, #n_arg, #pfx> });
+                    }
+                }
+                if accept_pod_aliases {
+                    return Some(quote! { quasar_lang::pod::PodVec });
+                }
             }
         }
     }

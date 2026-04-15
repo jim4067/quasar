@@ -1,6 +1,6 @@
 use {
     proc_macro2::TokenStream,
-    quasar_schema::IdlAccountItem,
+    quasar_schema::{pascal_to_snake, IdlAccountItem},
     quote::{format_ident, quote},
 };
 
@@ -96,21 +96,4 @@ fn emit_account_meta(descriptor: &IdlAccountItem) -> TokenStream {
             quasar_lang::client::AccountMeta::new_readonly(ix.#ident, #signer),
         }
     }
-}
-
-fn pascal_to_snake(name: &str) -> String {
-    let mut snake = String::new();
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_uppercase() {
-            if i != 0 {
-                snake.push('_');
-            }
-            for lower in ch.to_lowercase() {
-                snake.push(lower);
-            }
-        } else {
-            snake.push(ch);
-        }
-    }
-    snake
 }

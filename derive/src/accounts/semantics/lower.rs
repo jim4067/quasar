@@ -136,16 +136,16 @@ fn classify_shape(effective_ty: &Type, raw_ty: &Type) -> FieldShape {
         };
     }
 
-    match type_base_name(effective_ty).as_deref() {
-        Some("SystemAccount") => FieldShape::SystemAccount,
-        Some("Signer") => FieldShape::Signer,
+    match type_base_name(effective_ty) {
+        Some(ident) if ident == "SystemAccount" => FieldShape::SystemAccount,
+        Some(ident) if ident == "Signer" => FieldShape::Signer,
         _ => FieldShape::Other,
     }
 }
 
-fn type_base_name(ty: &Type) -> Option<String> {
+fn type_base_name(ty: &Type) -> Option<&syn::Ident> {
     match ty {
-        Type::Path(tp) => tp.path.segments.last().map(|s| s.ident.to_string()),
+        Type::Path(tp) => tp.path.segments.last().map(|s| &s.ident),
         _ => None,
     }
 }

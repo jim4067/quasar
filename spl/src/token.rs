@@ -82,6 +82,43 @@ pub struct MintParams {
 }
 
 // ---------------------------------------------------------------------------
+// Shared validation helpers (used by both Token/Mint and Token2022/Mint2022)
+// ---------------------------------------------------------------------------
+
+/// Validate a token account against `TokenParams`, using `default_program` when
+/// `params.token_program` is `None`.
+#[inline(always)]
+pub(crate) fn validate_token_inner(
+    view: &AccountView,
+    params: &TokenParams,
+    default_program: &Address,
+) -> Result<(), ProgramError> {
+    let (mint, authority) = match (&params.mint, &params.authority) {
+        (Some(m), Some(a)) => (m, a),
+        _ => return Ok(()),
+    };
+    let token_program = params.token_program.as_ref().unwrap_or(default_program);
+    crate::validate::validate_token_account(view, mint, authority, token_program)
+}
+
+/// Validate a mint account against `MintParams`, using `default_program` when
+/// `params.token_program` is `None`.
+#[inline(always)]
+pub(crate) fn validate_mint_inner(
+    view: &AccountView,
+    params: &MintParams,
+    default_program: &Address,
+) -> Result<(), ProgramError> {
+    let (authority, decimals) = match (&params.authority, params.decimals) {
+        (Some(a), Some(d)) => (a, d),
+        _ => return Ok(()),
+    };
+    let token_program = params.token_program.as_ref().unwrap_or(default_program);
+    let freeze_authority = params.freeze_authority.as_ref();
+    crate::validate::validate_mint(view, authority, decimals, freeze_authority, token_program)
+}
+
+// ---------------------------------------------------------------------------
 // AccountInner impls — Token / Mint
 // ---------------------------------------------------------------------------
 
@@ -90,12 +127,7 @@ impl AccountInner for Token {
 
     #[inline(always)]
     fn validate(view: &AccountView, params: &Self::Params) -> Result<(), ProgramError> {
-        let (mint, authority) = match (&params.mint, &params.authority) {
-            (Some(m), Some(a)) => (m, a),
-            _ => return Ok(()),
-        };
-        let token_program = params.token_program.as_ref().unwrap_or(&SPL_TOKEN_ID);
-        crate::validate::validate_token_account(view, mint, authority, token_program)
+        validate_token_inner(view, params, &SPL_TOKEN_ID)
     }
 }
 
@@ -104,12 +136,6 @@ impl AccountInner for Mint {
 
     #[inline(always)]
     fn validate(view: &AccountView, params: &Self::Params) -> Result<(), ProgramError> {
-        let (authority, decimals) = match (&params.authority, params.decimals) {
-            (Some(a), Some(d)) => (a, d),
-            _ => return Ok(()),
-        };
-        let token_program = params.token_program.as_ref().unwrap_or(&SPL_TOKEN_ID);
-        let freeze_authority = params.freeze_authority.as_ref();
-        crate::validate::validate_mint(view, authority, decimals, freeze_authority, token_program)
+        validate_mint_inner(view, params, &SPL_TOKEN_ID)
     }
 }

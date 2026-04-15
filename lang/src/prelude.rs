@@ -3,15 +3,6 @@
 //! Most programs only need `use quasar::prelude::*` to access all framework
 //! types, traits, macros, and account wrappers.
 
-// Context & parsing
-// Account types - Program<T> type shadows ProgramTrait above
-// CPI
-// Dynamic field marker types
-// Error handling
-// Pod types
-// Utilities
-// Macros
-// AccountView
 pub use {
     crate::{
         account_inner::AccountInner,
