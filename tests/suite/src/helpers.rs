@@ -1,7 +1,7 @@
 use {
     quasar_svm::{
         token::{Mint, TokenAccount},
-        Account, Pubkey, QuasarSvm,
+        Account, Instruction, Pubkey, QuasarSvm,
     },
     solana_program_pack::Pack,
     spl_token_interface::state::AccountState,
@@ -40,6 +40,13 @@ pub fn token_2022_program_id() -> Pubkey {
 
 pub fn ata_program_id() -> Pubkey {
     quasar_svm::SPL_ASSOCIATED_TOKEN_PROGRAM_ID
+}
+
+pub fn with_signers(mut ix: Instruction, indices: &[usize]) -> Instruction {
+    for &i in indices {
+        ix.accounts[i].is_signer = true;
+    }
+    ix
 }
 
 // ---------------------------------------------------------------------------

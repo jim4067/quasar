@@ -202,3 +202,7 @@ impl quasar_lang::traits::AccountCheck for VaultInterface {
         }
     }
 }
+
+impl AccountInner for VaultInterface {
+    type Params = ();
+}

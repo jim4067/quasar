@@ -88,4 +88,11 @@ mod quasar_test_pda {
     pub fn verify_scoped_item(ctx: Ctx<VerifyScopedItem>) -> Result<(), ProgramError> {
         ctx.accounts.handler()
     }
+
+    #[instruction(discriminator = 15)]
+    pub fn init_scoped_item_from_config(
+        ctx: Ctx<InitScopedItemFromConfig>,
+    ) -> Result<(), ProgramError> {
+        ctx.accounts.handler(&ctx.bumps)
+    }
 }

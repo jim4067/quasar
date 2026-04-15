@@ -47,11 +47,6 @@ mod quasar_test_token_init {
         ctx.accounts.handler()
     }
 
-    #[instruction(discriminator = 7)]
-    pub fn init_mint_with_metadata(ctx: Ctx<InitMintWithMetadata>) -> Result<(), ProgramError> {
-        ctx.accounts.handler()
-    }
-
     #[instruction(discriminator = 8)]
     pub fn init_token_t22(ctx: Ctx<InitTokenT22>) -> Result<(), ProgramError> {
         ctx.accounts.handler()

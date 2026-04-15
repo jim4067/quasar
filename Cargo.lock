@@ -2140,13 +2140,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "quasar-client"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quasar-schema",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "quasar-derive"
 version = "0.0.0"
 dependencies = [
  "bs58",
  "const-crypto",
  "proc-macro2",
- "quasar-idl",
+ "quasar-client",
+ "quasar-schema",
  "quote",
  "serde",
  "serde_json",
@@ -2183,6 +2194,7 @@ name = "quasar-idl"
 version = "0.0.0"
 dependencies = [
  "proc-macro2",
+ "quasar-schema",
  "serde",
  "serde_json",
  "syn 2.0.117",
@@ -2201,11 +2213,19 @@ dependencies = [
  "solana-address 2.2.0",
  "solana-define-syscall 5.0.0",
  "solana-instruction",
- "solana-instruction-view 2.1.0",
+ "solana-instruction-view 2.0.0",
  "solana-program-error",
  "solana-program-log",
  "trybuild",
  "wincode 0.4.9",
+]
+
+[[package]]
+name = "quasar-metadata"
+version = "0.0.0"
+dependencies = [
+ "quasar-lang",
+ "solana-address 2.2.0",
 ]
 
 [[package]]
@@ -2253,6 +2273,13 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "toml 0.8.23",
+]
+
+[[package]]
+name = "quasar-schema"
+version = "0.0.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -3166,9 +3193,9 @@ dependencies = [
 
 [[package]]
 name = "solana-instruction-view"
-version = "2.1.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ab7a27d0c4214b9f7389c3dd00b68c93093a67f1dcc5b7893aebe299bbcbb47"
+checksum = "7c35d02cd27575b1fd05938d3624e476b0173208139053b51aa48dd9bec149f1"
 dependencies = [
  "solana-account-view 2.0.0",
  "solana-address 2.2.0",

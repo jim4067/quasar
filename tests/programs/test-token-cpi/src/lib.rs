@@ -82,11 +82,6 @@ mod quasar_test_token_cpi {
         ctx.accounts.handler()
     }
 
-    #[instruction(discriminator = 13)]
-    pub fn init_mint_with_metadata(ctx: Ctx<InitMintWithMetadata>) -> Result<(), ProgramError> {
-        ctx.accounts.handler()
-    }
-
     #[instruction(discriminator = 14)]
     pub fn init_if_needed_mint(ctx: Ctx<InitIfNeededMint>) -> Result<(), ProgramError> {
         ctx.accounts.handler()
