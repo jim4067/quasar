@@ -1,6 +1,6 @@
 use {
     crate::{
-        config::QuasarConfig,
+        config::resolve_client_path,
         error::{CliError, CliResult},
         IdlCommand,
     },
@@ -61,7 +61,7 @@ fn generate_idl(
 
 /// Called by `quasar idl <path>` — generates IDL JSON + Rust client only.
 pub fn run(command: IdlCommand) -> CliResult {
-    let clients_path = QuasarConfig::load()?.client_path();
+    let clients_path = resolve_client_path()?;
     let crate_path = &command.crate_path;
     if !crate_path.exists() {
         return Err(CliError::message(format!(

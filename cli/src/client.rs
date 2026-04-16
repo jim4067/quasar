@@ -1,6 +1,6 @@
 use {
     crate::{
-        config::QuasarConfig,
+        config::resolve_client_path,
         error::{CliError, CliResult},
         style, ClientCommand,
     },
@@ -13,7 +13,7 @@ use {
 const ALL_LANGUAGES: &[&str] = &["typescript", "python", "golang"];
 
 pub fn run(command: ClientCommand) -> CliResult {
-    let clients_path = QuasarConfig::load()?.client_path();
+    let clients_path = resolve_client_path()?;
     let idl_path = &command.idl_path;
 
     if !idl_path.exists() {

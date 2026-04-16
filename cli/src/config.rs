@@ -139,6 +139,15 @@ impl QuasarConfig {
     }
 }
 
+pub fn resolve_client_path() -> Result<PathBuf, CliError> {
+    let config_path = Path::new("Quasar.toml");
+    if !config_path.exists() {
+        return Ok(PathBuf::from("target").join("client"));
+    }
+
+    QuasarConfig::load_from(config_path).map(|config| config.client_path())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RawCommandSpec", into = "RawCommandSpec")]
 pub struct CommandSpec {
