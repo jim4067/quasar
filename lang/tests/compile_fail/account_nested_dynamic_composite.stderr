@@ -1,5 +1,0 @@
-error[E0080]: evaluation panicked: nested dynamic account fields are not supported; use top-level String<N>/Vec<T, N> fields instead
-  --> tests/compile_fail/account_nested_dynamic_composite.rs:13:1
-   |
-13 | #[account(discriminator = 1, set_inner)]
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here

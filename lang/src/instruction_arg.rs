@@ -32,16 +32,6 @@ pub trait InstructionArg: Sized {
     }
 }
 
-/// Marker metadata for types that can appear inside fixed account fields.
-///
-/// `CONTAINS_POD_DYNAMIC` is `true` when the type contains Pod-dynamic
-/// containers (`String<N>` / `Vec<T, N>` / `PodString` / `PodVec`) anywhere
-/// inside its fixed representation. `#[account]` uses this to reject nested
-/// dynamic account fields while still allowing top-level dynamic fields.
-pub trait AccountField: InstructionArg {
-    const CONTAINS_POD_DYNAMIC: bool;
-}
-
 // --- Identity impls (already alignment 1) ---
 
 impl InstructionArg for u8 {
@@ -56,10 +46,6 @@ impl InstructionArg for u8 {
     }
 }
 
-impl AccountField for u8 {
-    const CONTAINS_POD_DYNAMIC: bool = false;
-}
-
 impl InstructionArg for i8 {
     type Zc = i8;
     #[inline(always)]
@@ -70,10 +56,6 @@ impl InstructionArg for i8 {
     fn to_zc(&self) -> i8 {
         *self
     }
-}
-
-impl AccountField for i8 {
-    const CONTAINS_POD_DYNAMIC: bool = false;
 }
 
 impl<const N: usize> InstructionArg for [u8; N] {
@@ -88,10 +70,6 @@ impl<const N: usize> InstructionArg for [u8; N] {
     }
 }
 
-impl<const N: usize> AccountField for [u8; N] {
-    const CONTAINS_POD_DYNAMIC: bool = false;
-}
-
 impl InstructionArg for solana_address::Address {
     type Zc = solana_address::Address;
     #[inline(always)]
@@ -102,10 +80,6 @@ impl InstructionArg for solana_address::Address {
     fn to_zc(&self) -> solana_address::Address {
         *self
     }
-}
-
-impl AccountField for solana_address::Address {
-    const CONTAINS_POD_DYNAMIC: bool = false;
 }
 
 // --- Pod-mapped impls (native → Pod companion) ---
@@ -135,16 +109,6 @@ impl_instruction_arg_pod!(i32, PodI32);
 impl_instruction_arg_pod!(i64, PodI64);
 impl_instruction_arg_pod!(i128, PodI128);
 
-macro_rules! impl_account_field_false {
-    ($($t:ty),* $(,)?) => {$(
-        impl AccountField for $t {
-            const CONTAINS_POD_DYNAMIC: bool = false;
-        }
-    )*}
-}
-
-impl_account_field_false!(u16, u32, u64, u128, i16, i32, i64, i128);
-
 impl InstructionArg for bool {
     type Zc = PodBool;
     #[inline(always)]
@@ -155,10 +119,6 @@ impl InstructionArg for bool {
     fn to_zc(&self) -> PodBool {
         PodBool::from(*self)
     }
-}
-
-impl AccountField for bool {
-    const CONTAINS_POD_DYNAMIC: bool = false;
 }
 
 // --- Pod types map to themselves ---
@@ -176,10 +136,6 @@ macro_rules! impl_instruction_arg_identity {
 }
 
 impl_instruction_arg_identity!(
-    PodU16, PodU32, PodU64, PodU128, PodI16, PodI32, PodI64, PodI128, PodBool
-);
-
-impl_account_field_false!(
     PodU16, PodU32, PodU64, PodU128, PodI16, PodI32, PodI64, PodI128, PodBool
 );
 
@@ -204,10 +160,6 @@ impl<const N: usize, const PFX: usize> InstructionArg for crate::pod::PodString<
     }
 }
 
-impl<const N: usize, const PFX: usize> AccountField for crate::pod::PodString<N, PFX> {
-    const CONTAINS_POD_DYNAMIC: bool = true;
-}
-
 impl<T: Copy, const N: usize, const PFX: usize> InstructionArg for crate::pod::PodVec<T, N, PFX> {
     type Zc = Self;
     #[inline(always)]
@@ -225,10 +177,6 @@ impl<T: Copy, const N: usize, const PFX: usize> InstructionArg for crate::pod::P
         }
         Ok(())
     }
-}
-
-impl<T: Copy, const N: usize, const PFX: usize> AccountField for crate::pod::PodVec<T, N, PFX> {
-    const CONTAINS_POD_DYNAMIC: bool = true;
 }
 
 // --- InstructionArgDecode<'a>: unified decode for fixed and borrowed args ---
@@ -333,10 +281,6 @@ impl<T: InstructionArg> InstructionArg for Option<T> {
             },
         }
     }
-}
-
-impl<T: AccountField> AccountField for Option<T> {
-    const CONTAINS_POD_DYNAMIC: bool = T::CONTAINS_POD_DYNAMIC;
 }
 
 #[cfg(test)]

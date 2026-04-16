@@ -6,7 +6,6 @@ use {proc_macro::TokenStream, syn::DeriveInput};
 pub(super) struct PodFieldInfo<'a> {
     pub field: &'a syn::Field,
     pub pod_dyn: Option<crate::helpers::PodDynField>,
-    pub direct_pod_dyn: bool,
 }
 
 pub(super) fn generate_account(
@@ -31,7 +30,6 @@ pub(super) fn generate_account(
         super::layout::emit_zc_definition(name, has_dynamic, &zc, &dynamic.align_asserts);
     let account_wrapper =
         super::layout::emit_account_wrapper(attrs, vis, name, disc_len, &zc.zc_path);
-    let nested_dynamic_rejections = emit_nested_dynamic_rejections(field_infos);
     let discriminator_impl =
         super::traits::emit_discriminator_impl(name, disc_bytes, &bump_offset_impl);
     let owner_impl = super::traits::emit_owner_impl(name);
@@ -76,8 +74,6 @@ pub(super) fn generate_account(
 
         #zc_definition
 
-        #nested_dynamic_rejections
-
         #discriminator_impl
 
         #owner_impl
@@ -95,22 +91,4 @@ pub(super) fn generate_account(
         #set_inner_impl
     }
     .into()
-}
-
-fn emit_nested_dynamic_rejections(field_infos: &[PodFieldInfo<'_>]) -> proc_macro2::TokenStream {
-    let checks: Vec<_> = field_infos
-        .iter()
-        .filter(|fi| fi.pod_dyn.is_none() && !fi.direct_pod_dyn)
-        .map(|fi| {
-            let ty = &fi.field.ty;
-            quote::quote! {
-                const _: () = assert!(
-                    !<#ty as quasar_lang::instruction_arg::AccountField>::CONTAINS_POD_DYNAMIC,
-                    "nested dynamic account fields are not supported; use top-level String<N>/Vec<T, N> fields instead"
-                );
-            }
-        })
-        .collect();
-
-    quote::quote! { #(#checks)* }
 }
