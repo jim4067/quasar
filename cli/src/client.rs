@@ -10,7 +10,7 @@ use {
 
 /// Languages that can be generated from an IDL JSON file.
 /// Rust codegen requires the parsed AST and is handled by `quasar idl`.
-const ALL_LANGUAGES: &[&str] = &["typescript", "python", "golang"];
+const ALL_LANGUAGES: &[&str] = &["typescript", "python", "golang", "c"];
 
 pub fn run(command: ClientCommand) -> CliResult {
     let clients_path = resolve_client_path()?;
@@ -38,8 +38,9 @@ pub fn run(command: ClientCommand) -> CliResult {
                 "ts" | "typescript" => Ok("typescript"),
                 "py" | "python" => Ok("python"),
                 "go" | "golang" => Ok("golang"),
+                "c" | "C" => Ok("c"),
                 other => Err(CliError::message(format!(
-                    "unknown language: '{other}'. Options: typescript, python, golang"
+                    "unknown language: '{other}'. Options: typescript, python, golang, c"
                 ))),
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -124,6 +125,16 @@ pub fn generate_clients(
             go_dir.join("go.mod"),
             codegen::golang::generate_go_mod(&go_pkg),
         )?;
+    }
+
+    // C
+    if languages.contains(&"c") {
+        let c_code = codegen::c::generate_c_client(idl);
+        let c_dir = PathBuf::from(clients_path)
+            .join("c")
+            .join(&idl.metadata.name);
+        std::fs::create_dir_all(&c_dir)?;
+        std::fs::write(c_dir.join("client.h"), &c_code)?;
     }
 
     Ok(())

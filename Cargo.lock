@@ -2165,6 +2165,7 @@ dependencies = [
 name = "quasar-idl"
 version = "0.0.0"
 dependencies = [
+ "bs58",
  "proc-macro2",
  "quasar-schema",
  "serde",
