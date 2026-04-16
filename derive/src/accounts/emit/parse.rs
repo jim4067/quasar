@@ -200,7 +200,7 @@ fn emit_one_check_block(
 
     if !sem.has_init() {
         if let Some(pda) = &sem.pda {
-            stmts.push(emit_pda_check(field_ident, pda, all_semantics));
+            stmts.push(emit_pda_check(sem, field_ident, pda, all_semantics));
         }
         if let Some(token_check) = super::init::emit_non_init_check(sem) {
             stmts.push(token_check);
@@ -221,6 +221,7 @@ fn emit_one_check_block(
 }
 
 fn emit_pda_check(
+    sem: &FieldSemantics,
     field: &syn::Ident,
     pda: &PdaConstraint,
     all_semantics: &[FieldSemantics],
@@ -240,7 +241,11 @@ fn emit_pda_check(
             addr_expr: &addr_access,
             seed_array_name: &seed_array_name,
             explicit_bump_name: &explicit_bump_name,
-            bare_mode: PdaBareMode::KnownAddress,
+            bare_mode: if sem.core.shape.supports_existing_pda_fast_path() {
+                PdaBareMode::KnownAddress
+            } else {
+                PdaBareMode::DeriveExpected
+            },
             log_failure: true,
         },
     );
@@ -428,20 +433,35 @@ pub(super) fn emit_pda_bump_assignment(
     } = assignment;
 
     match &pda.bump {
-        Some(BumpSyntax::Explicit(expr)) => {
-            let failure = emit_failure_log(field, log_failure);
-            quote! {
-                let #explicit_bump_name: u8 = #expr;
-                let __bump_ref: &[u8] = &[#explicit_bump_name];
-                let #seed_array_name = [#(#seed_idents,)* __bump_ref];
-                quasar_lang::pda::verify_program_address(&#seed_array_name, __program_id, #addr_expr)
-                    .map_err(|__e| {
-                        #failure
-                        __e
-                    })?;
-                #bump_var = #explicit_bump_name;
+        Some(BumpSyntax::Explicit(expr)) => match bare_mode {
+            PdaBareMode::KnownAddress => {
+                let failure = emit_failure_log(field, log_failure);
+                quote! {
+                    let #explicit_bump_name: u8 = #expr;
+                    let __bump_ref: &[u8] = &[#explicit_bump_name];
+                    let #seed_array_name = [#(#seed_idents,)* __bump_ref];
+                    quasar_lang::pda::verify_program_address(&#seed_array_name, __program_id, #addr_expr)
+                        .map_err(|__e| {
+                            #failure
+                            __e
+                        })?;
+                    #bump_var = #explicit_bump_name;
+                }
             }
-        }
+            PdaBareMode::DeriveExpected => {
+                let invalid_pda_error = emit_invalid_pda_error_expr(field, log_failure);
+                quote! {
+                    let #explicit_bump_name: u8 = #expr;
+                    let #seed_array_name = [#(#seed_idents),*];
+                    let (__expected, __derived_bump) =
+                        quasar_lang::pda::based_try_find_program_address(&#seed_array_name, __program_id)?;
+                    if !quasar_lang::keys_eq(#addr_expr, &__expected) || __derived_bump != #explicit_bump_name {
+                        return Err({ #invalid_pda_error });
+                    }
+                    #bump_var = #explicit_bump_name;
+                }
+            }
+        },
         Some(BumpSyntax::Bare) | None => {
             let invalid_pda_error = emit_invalid_pda_error_expr(field, log_failure);
             match bare_mode {
@@ -458,7 +478,7 @@ pub(super) fn emit_pda_bump_assignment(
                     let (__expected, __derived_bump) =
                         quasar_lang::pda::based_try_find_program_address(&#seed_array_name, __program_id)?;
                     if !quasar_lang::keys_eq(#addr_expr, &__expected) {
-                        return Err(#invalid_pda_error);
+                        return Err({ #invalid_pda_error });
                     }
                     #bump_var = __derived_bump;
                 },
