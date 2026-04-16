@@ -9,7 +9,7 @@ use {
 /// Uses `gagliardetto/solana-go` for Solana types (PublicKey, Instruction,
 /// AccountMeta).
 pub fn generate_go_client(idl: &Idl) -> String {
-    let pkg_name = idl.metadata.crate_name.replace('-', "_");
+    let pkg_name = idl.metadata.client_name().replace('-', "_");
     let mut out = String::new();
 
     // Package + imports
