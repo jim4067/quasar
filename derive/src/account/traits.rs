@@ -1,5 +1,16 @@
 use {super::fixed::PodFieldInfo, crate::helpers::map_to_pod_type, quote::quote};
 
+pub(super) struct AccountCheckSpec<'a> {
+    pub name: &'a syn::Ident,
+    pub has_dynamic: bool,
+    pub disc_len: usize,
+    pub disc_indices: &'a [usize],
+    pub disc_bytes: &'a [syn::LitInt],
+    pub zc_path: &'a proc_macro2::TokenStream,
+    pub prefix_total: usize,
+    pub validation_stmts: &'a [proc_macro2::TokenStream],
+}
+
 pub(super) fn emit_discriminator_impl(
     name: &syn::Ident,
     disc_bytes: &[syn::LitInt],
@@ -48,16 +59,18 @@ pub(super) fn emit_space_impl(
     }
 }
 
-pub(super) fn emit_account_check_impl(
-    name: &syn::Ident,
-    has_dynamic: bool,
-    disc_len: usize,
-    disc_indices: &[usize],
-    disc_bytes: &[syn::LitInt],
-    zc_path: &proc_macro2::TokenStream,
-    prefix_total: usize,
-    validation_stmts: &[proc_macro2::TokenStream],
-) -> proc_macro2::TokenStream {
+pub(super) fn emit_account_check_impl(spec: AccountCheckSpec<'_>) -> proc_macro2::TokenStream {
+    let AccountCheckSpec {
+        name,
+        has_dynamic,
+        disc_len,
+        disc_indices,
+        disc_bytes,
+        zc_path,
+        prefix_total,
+        validation_stmts,
+    } = spec;
+
     if has_dynamic {
         quote! {
             impl AccountCheck for #name {

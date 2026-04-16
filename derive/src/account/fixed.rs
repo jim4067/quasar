@@ -41,30 +41,31 @@ pub(super) fn generate_account(
         &zc.zc_path,
         dynamic.prefix_total,
     );
-    let account_check_impl = super::traits::emit_account_check_impl(
-        name,
-        has_dynamic,
-        disc_len,
-        disc_indices,
-        disc_bytes,
-        &zc.zc_path,
-        dynamic.prefix_total,
-        &dynamic.validation_stmts,
-    );
+    let account_check_impl =
+        super::traits::emit_account_check_impl(super::traits::AccountCheckSpec {
+            name,
+            has_dynamic,
+            disc_len,
+            disc_indices,
+            disc_bytes,
+            zc_path: &zc.zc_path,
+            prefix_total: dynamic.prefix_total,
+            validation_stmts: &dynamic.validation_stmts,
+        });
     let dynamic_impl_block =
         super::dynamic::emit_dynamic_impl_block(name, has_dynamic, disc_len, &zc.zc_path, &dynamic);
     let dyn_guard =
         super::dynamic::emit_dyn_guard(name, has_dynamic, disc_len, &zc.zc_name, &dynamic);
-    let set_inner_impl = super::methods::emit_set_inner_impl(
+    let set_inner_impl = super::methods::emit_set_inner_impl(super::methods::SetInnerSpec {
         name,
         vis,
         field_infos,
         has_dynamic,
         disc_len,
-        &zc.zc_name,
-        &zc.zc_path,
+        zc_name: &zc.zc_name,
+        zc_path: &zc.zc_path,
         gen_set_inner,
-    );
+    });
 
     quote::quote! {
         #account_wrapper

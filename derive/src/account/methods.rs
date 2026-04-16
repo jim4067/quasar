@@ -4,16 +4,29 @@ use {
     quote::{format_ident, quote},
 };
 
-pub(super) fn emit_set_inner_impl(
-    name: &syn::Ident,
-    vis: &syn::Visibility,
-    field_infos: &[PodFieldInfo<'_>],
-    has_dynamic: bool,
-    disc_len: usize,
-    zc_name: &syn::Ident,
-    zc_path: &proc_macro2::TokenStream,
-    gen_set_inner: bool,
-) -> proc_macro2::TokenStream {
+pub(super) struct SetInnerSpec<'a> {
+    pub name: &'a syn::Ident,
+    pub vis: &'a syn::Visibility,
+    pub field_infos: &'a [PodFieldInfo<'a>],
+    pub has_dynamic: bool,
+    pub disc_len: usize,
+    pub zc_name: &'a syn::Ident,
+    pub zc_path: &'a proc_macro2::TokenStream,
+    pub gen_set_inner: bool,
+}
+
+pub(super) fn emit_set_inner_impl(spec: SetInnerSpec<'_>) -> proc_macro2::TokenStream {
+    let SetInnerSpec {
+        name,
+        vis,
+        field_infos,
+        has_dynamic,
+        disc_len,
+        zc_name,
+        zc_path,
+        gen_set_inner,
+    } = spec;
+
     if !gen_set_inner {
         return quote! {};
     }
