@@ -823,11 +823,11 @@ fn rust_codegen_account_metas() {
 // Instruction codegen: dynamic types use wrapper types
 //
 // This is the critical wire compatibility test. String<N> maps to
-// DynBytes<u8> (u8 prefix) and Vec<T, N> maps to DynVec<T, u16> (u16 prefix).
+// DynString<u8> (u8 prefix) and Vec<T, N> maps to DynVec<T, u16> (u16 prefix).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn rust_codegen_dynamic_string_uses_dyn_bytes() {
+fn rust_codegen_dynamic_string_uses_dyn_string() {
     let file = parse_file(
         r#"
         #[program]
@@ -846,8 +846,8 @@ fn rust_codegen_dynamic_string_uses_dyn_bytes() {
     let code = all_content(&files);
 
     assert!(
-        code.contains("pub name: DynBytes<u8>,"),
-        "String<N> must map to DynBytes<u8>, got:\n{code}"
+        code.contains("pub name: DynString<u8>,"),
+        "String<N> must map to DynString<u8>, got:\n{code}"
     );
     assert!(
         !code.contains("pub name: Vec<u8>"),
@@ -876,8 +876,8 @@ fn rust_codegen_dynamic_types_import() {
 
     // Only the actually-used wrapper type is imported
     assert!(
-        code.contains("DynBytes"),
-        "DynBytes must be imported: {code}"
+        code.contains("DynString"),
+        "DynString must be imported: {code}"
     );
     assert!(
         !code.contains("DynVec"),
@@ -897,7 +897,7 @@ fn rust_codegen_dynamic_types_import() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn rust_codegen_dyn_bytes_u8_prefix() {
+fn rust_codegen_dyn_string_u8_prefix() {
     let file = parse_file(
         r#"
         #[program]
@@ -916,8 +916,8 @@ fn rust_codegen_dyn_bytes_u8_prefix() {
     let code = all_content(&files);
 
     assert!(
-        code.contains("pub name: DynBytes<u8>,"),
-        "String<N> must map to DynBytes<u8>, got:\n{code}"
+        code.contains("pub name: DynString<u8>,"),
+        "String<N> must map to DynString<u8>, got:\n{code}"
     );
 }
 

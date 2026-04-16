@@ -212,18 +212,18 @@ fn emit_instructions(
     let mut ix_files: Vec<(String, String)> = Vec::new();
 
     // Scan all instruction arg types for imports needed by mod.rs
-    let mut needs_dyn_bytes = false;
+    let mut needs_dyn_string = false;
     let mut needs_dyn_vec = false;
     let mut needs_address = false;
     for ix in &idl.instructions {
         for arg in &ix.args {
-            collect_wrapper_needs(&arg.ty, &mut needs_dyn_bytes, &mut needs_dyn_vec);
+            collect_wrapper_needs(&arg.ty, &mut needs_dyn_string, &mut needs_dyn_vec);
             if field_needs_address(&arg.ty) {
                 needs_address = true;
             }
         }
     }
-    emit_wrapper_imports(&mut mod_rs, needs_dyn_bytes, needs_dyn_vec);
+    emit_wrapper_imports(&mut mod_rs, needs_dyn_string, needs_dyn_vec);
     if needs_address {
         mod_rs.push_str("use solana_address::Address;\n");
     }
@@ -885,7 +885,7 @@ fn emit_pda(pdas: &[PdaInfo]) -> String {
 // Shared helpers
 // ===========================================================================
 
-/// Scan field types and emit wrapper imports (DynBytes, DynVec), Address
+/// Scan field types and emit wrapper imports (DynString, DynVec), Address
 /// import, and defined type imports. Used by instruction, state/event, and type
 /// emitters.
 fn emit_field_imports<'a>(
@@ -894,10 +894,10 @@ fn emit_field_imports<'a>(
     type_map: &HashMap<String, Vec<IdlField>>,
 ) {
     let mut needs_address = false;
-    let mut needs_dyn_bytes = false;
+    let mut needs_dyn_string = false;
     let mut needs_dyn_vec = false;
     for ty in types {
-        collect_wrapper_needs(ty, &mut needs_dyn_bytes, &mut needs_dyn_vec);
+        collect_wrapper_needs(ty, &mut needs_dyn_string, &mut needs_dyn_vec);
         if field_needs_address(ty) {
             needs_address = true;
         }
@@ -906,7 +906,7 @@ fn emit_field_imports<'a>(
     if needs_address {
         out.push_str("use solana_address::Address;\n");
     }
-    emit_wrapper_imports(out, needs_dyn_bytes, needs_dyn_vec);
+    emit_wrapper_imports(out, needs_dyn_string, needs_dyn_vec);
 }
 
 /// Emit struct definition + manual SchemaWrite/SchemaRead impls with
@@ -1063,7 +1063,7 @@ fn rust_field_type(ty: &IdlType) -> String {
             other => other.to_string(),
         },
         IdlType::Option { option } => format!("Option<{}>", rust_field_type(option)),
-        IdlType::DynString { string } => prefix_generic("DynBytes", string.prefix_bytes),
+        IdlType::DynString { string } => prefix_generic("DynString", string.prefix_bytes),
         IdlType::DynVec { vec } => {
             let inner = rust_field_type(&vec.items);
             format!("DynVec<{}, {}>", inner, prefix_rust_type(vec.prefix_bytes))
@@ -1085,13 +1085,15 @@ fn prefix_rust_type(prefix_bytes: usize) -> &'static str {
     }
 }
 
-fn collect_wrapper_needs(ty: &IdlType, needs_dyn_bytes: &mut bool, needs_dyn_vec: &mut bool) {
+fn collect_wrapper_needs(ty: &IdlType, needs_dyn_string: &mut bool, needs_dyn_vec: &mut bool) {
     match ty {
-        IdlType::Option { option } => collect_wrapper_needs(option, needs_dyn_bytes, needs_dyn_vec),
-        IdlType::DynString { .. } => *needs_dyn_bytes = true,
+        IdlType::Option { option } => {
+            collect_wrapper_needs(option, needs_dyn_string, needs_dyn_vec)
+        }
+        IdlType::DynString { .. } => *needs_dyn_string = true,
         IdlType::DynVec { vec } => {
             *needs_dyn_vec = true;
-            collect_wrapper_needs(&vec.items, needs_dyn_bytes, needs_dyn_vec);
+            collect_wrapper_needs(&vec.items, needs_dyn_string, needs_dyn_vec);
         }
         _ => {}
     }
@@ -1106,10 +1108,10 @@ fn field_needs_address(ty: &IdlType) -> bool {
     }
 }
 
-fn emit_wrapper_imports(out: &mut String, needs_dyn_bytes: bool, needs_dyn_vec: bool) {
+fn emit_wrapper_imports(out: &mut String, needs_dyn_string: bool, needs_dyn_vec: bool) {
     let mut wrappers = Vec::new();
-    if needs_dyn_bytes {
-        wrappers.push("DynBytes");
+    if needs_dyn_string {
+        wrappers.push("DynString");
     }
     if needs_dyn_vec {
         wrappers.push("DynVec");
