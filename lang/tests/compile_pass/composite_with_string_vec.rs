@@ -12,14 +12,6 @@ pub struct Metadata {
     pub version: u32,
 }
 
-/// Account with composite field containing aliased String/Vec.
-/// Tests the full chain: alias rewriting → ZC mapping → set_inner codegen.
-#[account(discriminator = 1, set_inner)]
-pub struct Registry {
-    pub meta: Metadata,
-    pub bump: u8,
-}
-
 /// Instruction arg with composite containing PodString/PodVec.
 #[derive(Copy, Clone, QuasarSerialize)]
 pub struct UpdateArgs {

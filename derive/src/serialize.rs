@@ -11,6 +11,7 @@
 //! 2. No ZC companion or `InstructionArg` impl (not `Copy`).
 
 use {
+    crate::helpers::classify_pod_dynamic,
     proc_macro::TokenStream,
     proc_macro2::TokenStream as TokenStream2,
     quote::{format_ident, quote},
@@ -69,6 +70,21 @@ fn derive_fixed(input: DeriveInput, fields: Vec<Field>) -> TokenStream {
     let name = &input.ident;
     let generics = &input.generics;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let mut account_field_generics = input.generics.clone();
+    {
+        let account_field_where = account_field_generics.make_where_clause();
+        for ty in fields
+            .iter()
+            .map(|field| &field.ty)
+            .filter(|ty| classify_pod_dynamic(ty).is_none())
+        {
+            account_field_where
+                .predicates
+                .push(parse_quote!(#ty: quasar_lang::instruction_arg::AccountField));
+        }
+    }
+    let (account_field_impl_generics, account_field_ty_generics, account_field_where_clause) =
+        account_field_generics.split_for_impl();
 
     let zc_name = format_ident!("__{}Zc", name);
 
@@ -108,6 +124,17 @@ fn derive_fixed(input: DeriveInput, fields: Vec<Field>) -> TokenStream {
         .map(|(name, ty)| {
             quote! {
                 <#ty as quasar_lang::instruction_arg::InstructionArg>::validate_zc(&zc.#name)?;
+            }
+        })
+        .collect();
+
+    let contains_pod_dynamic_exprs: Vec<_> = field_types
+        .iter()
+        .map(|ty| {
+            if classify_pod_dynamic(ty).is_some() {
+                quote! { true }
+            } else {
+                quote! { <#ty as quasar_lang::instruction_arg::AccountField>::CONTAINS_POD_DYNAMIC }
             }
         })
         .collect();
@@ -204,6 +231,12 @@ fn derive_fixed(input: DeriveInput, fields: Vec<Field>) -> TokenStream {
                 #(#validate_zc_fields)*
                 Ok(())
             }
+        }
+
+        impl #account_field_impl_generics quasar_lang::instruction_arg::AccountField
+            for #name #account_field_ty_generics #account_field_where_clause
+        {
+            const CONTAINS_POD_DYNAMIC: bool = false #(|| #contains_pod_dynamic_exprs)*;
         }
 
         // Wincode SchemaWrite + SchemaRead (off-chain only)
@@ -432,6 +465,12 @@ fn derive_enum(input: DeriveInput, variants: Vec<syn::Variant>) -> TokenStream {
                 __dst.write(<Self as quasar_lang::instruction_arg::InstructionArg>::from_zc(__zc));
                 Ok(())
             }
+        }
+
+        impl #impl_generics quasar_lang::instruction_arg::AccountField
+            for #name #ty_generics #where_clause
+        {
+            const CONTAINS_POD_DYNAMIC: bool = false;
         }
     };
 
