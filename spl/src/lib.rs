@@ -152,7 +152,7 @@ pub use {
     associated_token::{
         create as ata_create, create_idempotent as ata_create_idempotent,
         get_associated_token_address_const, get_associated_token_address_with_program_const,
-        AssociatedTokenProgram,
+        AssociatedTokenCpi, AssociatedTokenProgram,
     },
     constants::{ATA_PROGRAM_ID, SPL_TOKEN_ID, TOKEN_2022_ID},
     instructions::{initialize_account3, initialize_mint2, TokenCpi},

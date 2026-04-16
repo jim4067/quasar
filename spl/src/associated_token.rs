@@ -29,14 +29,18 @@ impl Id for AssociatedTokenProgram {
 // Address derivation
 // ---------------------------------------------------------------------------
 
-impl AssociatedTokenProgram {
+/// Trait for types that can execute ATA program CPI calls.
+///
+/// Implemented by `Program<AssociatedTokenProgram>`. Import this trait to
+/// call `.create()` and `.create_idempotent()` directly on the program account.
+pub trait AssociatedTokenCpi: AsAccountView {
     /// Create an associated token account.
     ///
     /// Fails if the associated token account already exists. Use
     /// [`create_idempotent`](Self::create_idempotent) if you want a no-op on
     /// an existing account.
     #[inline(always)]
-    pub fn create<'a>(
+    fn create<'a>(
         &'a self,
         payer: &'a impl AsAccountView,
         ata: &'a AccountView,
@@ -44,13 +48,25 @@ impl AssociatedTokenProgram {
         mint: &'a impl AsAccountView,
         system_program: &'a Program<System>,
         token_program: &'a impl TokenCpi,
-    ) -> CpiCall<'a, 6, 1> {
-        create(self, payer, ata, wallet, mint, system_program, token_program)
+    ) -> CpiCall<'a, 6, 1>
+    where
+        Self: Sized,
+    {
+        build_ata_cpi(
+            self,
+            payer,
+            ata,
+            wallet,
+            mint,
+            system_program,
+            token_program,
+            ATA_CREATE,
+        )
     }
 
     /// Create an associated token account, no-op if it already exists.
     #[inline(always)]
-    pub fn create_idempotent<'a>(
+    fn create_idempotent<'a>(
         &'a self,
         payer: &'a impl AsAccountView,
         ata: &'a AccountView,
@@ -58,10 +74,24 @@ impl AssociatedTokenProgram {
         mint: &'a impl AsAccountView,
         system_program: &'a Program<System>,
         token_program: &'a impl TokenCpi,
-    ) -> CpiCall<'a, 6, 1> {
-        create_idempotent(self, payer, ata, wallet, mint, system_program, token_program)
+    ) -> CpiCall<'a, 6, 1>
+    where
+        Self: Sized,
+    {
+        build_ata_cpi(
+            self,
+            payer,
+            ata,
+            wallet,
+            mint,
+            system_program,
+            token_program,
+            ATA_CREATE_IDEMPOTENT,
+        )
     }
 }
+
+impl AssociatedTokenCpi for Program<AssociatedTokenProgram> {}
 
 /// Const-compatible ATA address derivation (works off-chain and in const
 /// contexts).
@@ -150,7 +180,7 @@ pub fn create_idempotent<'a>(
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn build_ata_cpi<'a>(
-    ata_program: &'a AssociatedTokenProgram,
+    ata_program: &'a impl AsAccountView,
     payer: &'a impl AsAccountView,
     ata: &'a AccountView,
     wallet: &'a impl AsAccountView,
