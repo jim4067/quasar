@@ -1,0 +1,10 @@
+[package]
+name = "zeropod"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/blueshift-gg/zeropod"
+description = "Zero-copy pod types with derive macros. Alignment-1 representations for zero-overhead data access."
+
+[dependencies]
+zeropod-derive = { path = "../zeropod-derive" }

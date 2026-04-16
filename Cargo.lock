@@ -4678,6 +4678,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "zeropod"
+version = "0.1.0"
+dependencies = [
+ "zeropod-derive",
+]
+
+[[package]]
+name = "zeropod-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
