@@ -44,6 +44,16 @@ impl FieldShape {
     pub fn is_token_or_mint(&self) -> bool {
         self.inner_name_matches(&["Token", "Token2022", "Mint", "Mint2022"])
     }
+
+    /// Whether an existing account of this shape can use the PDA bump fast
+    /// path once wrapper validation has already run.
+    pub fn supports_existing_pda_fast_path(&self) -> bool {
+        match self {
+            Self::Account { .. } => true,
+            Self::InterfaceAccount { .. } => self.is_token_or_mint(),
+            _ => false,
+        }
+    }
 }
 
 pub(crate) struct FieldCore {
