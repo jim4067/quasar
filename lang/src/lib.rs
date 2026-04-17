@@ -267,8 +267,6 @@ pub mod event;
 /// Trait for fixed-size instruction argument types with alignment-1 ZC
 /// companions.
 pub mod instruction_arg;
-/// Instruction data deserialization for dynamic fields (strings and vecs).
-pub mod instruction_data;
 /// Low-level `sol_log_data` syscall wrapper.
 pub mod log;
 /// Program Derived Address creation and lookup.
