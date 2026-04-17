@@ -162,6 +162,8 @@ fn derive_fixed(input: DeriveInput, fields: Vec<Field>) -> TokenStream {
             ) -> wincode::error::ReadResult<()> {
                 let __bytes = __reader.take_scoped(core::mem::size_of::<Self>())?;
                 let __zc = unsafe { core::ptr::read_unaligned(__bytes.as_ptr() as *const Self) };
+                quasar_lang::__zeropod::ZcValidate::validate_ref(&__zc)
+                    .map_err(|_| wincode::error::ReadError::InvalidValue("pod validation failed"))?;
                 __dst.write(__zc);
                 Ok(())
             }
