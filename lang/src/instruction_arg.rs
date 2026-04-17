@@ -153,10 +153,8 @@ impl<const N: usize, const PFX: usize> InstructionArg for crate::pod::PodString<
     }
     #[inline(always)]
     fn validate_zc(zc: &Self) -> Result<(), crate::prelude::ProgramError> {
-        if zc.decode_len() > N {
-            return Err(crate::prelude::ProgramError::InvalidInstructionData);
-        }
-        Ok(())
+        <Self as zeropod::ZcValidate>::validate_ref(zc)
+            .map_err(|_| crate::prelude::ProgramError::InvalidInstructionData)
     }
 }
 
@@ -172,10 +170,8 @@ impl<T: zeropod::ZcElem, const N: usize, const PFX: usize> InstructionArg for cr
     }
     #[inline(always)]
     fn validate_zc(zc: &Self) -> Result<(), crate::prelude::ProgramError> {
-        if zc.decode_len() > N {
-            return Err(crate::prelude::ProgramError::InvalidInstructionData);
-        }
-        Ok(())
+        <Self as zeropod::ZcValidate>::validate_ref(zc)
+            .map_err(|_| crate::prelude::ProgramError::InvalidInstructionData)
     }
 }
 
