@@ -234,13 +234,18 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
         let has_lifetime = arg_classes
             .iter()
             .any(|cls| matches!(cls, ArgClass::Lifetime));
-        let has_dynamic = has_pod_dyn || has_lifetime;
 
-        // Use compact layout when there are PodDyn fields and NO lifetime
-        // args. Lifetime args (grouped borrowed structs like MintArgs<'a>)
-        // cannot participate in a zeropod schema, so we fall back to the
-        // cursor-based path when they're present.
-        let use_compact = has_pod_dyn && !has_lifetime;
+        if has_lifetime {
+            return syn::Error::new_spanned(
+                &remaining[arg_classes.iter().position(|cls| matches!(cls, ArgClass::Lifetime)).unwrap()],
+                "#[instruction] does not yet support lifetime arguments. \
+                 Use String<N> or Vec<T, N> for dynamic fields.",
+            )
+            .to_compile_error()
+            .into();
+        }
+
+        let use_compact = has_pod_dyn;
 
         // Alias quasar_lang's re-export so `zeropod::*` paths emitted by
         // the ZeroPod derive resolve without a direct crate dependency.
@@ -312,94 +317,6 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
                     ArgClass::Lifetime => unreachable!(),
                 }
             }
-        } else if has_dynamic {
-            // Cursor-based path: used when lifetime args are present
-            // (grouped borrowed structs that can't participate in zeropod
-            // schemas). Fixed args use ZeroPodFixed, dynamic args use
-            // sequential cursor decode.
-            let has_fixed = arg_classes.iter().any(|cls| matches!(cls, ArgClass::Fixed));
-            let zc_field_names: Vec<_> = field_names
-                .iter()
-                .zip(arg_classes.iter())
-                .filter_map(|(name, cls)| match cls {
-                    ArgClass::Fixed => Some(name.clone()),
-                    _ => None,
-                })
-                .collect();
-            let zc_field_orig_types: Vec<_> = remaining
-                .iter()
-                .zip(arg_classes.iter())
-                .filter_map(|(pt, cls)| match cls {
-                    ArgClass::Fixed => Some((*pt.ty).clone()),
-                    _ => None,
-                })
-                .collect();
-
-            if has_fixed {
-                new_stmts.extend(emit_fixed_schema_stmts(
-                    &param_ident,
-                    &zc_field_names,
-                    &zc_field_orig_types,
-                ));
-            }
-
-            // Dynamic cursor decode for PodDyn + Lifetime args
-            new_stmts.push(syn::parse_quote!(
-                let __data = #param_ident.data;
-            ));
-            if has_fixed {
-                new_stmts.push(syn::parse_quote!(
-                    let mut __offset = <__InstructionDataSchema as quasar_lang::ZeroPodFixed>::SIZE;
-                ));
-            } else {
-                new_stmts.push(syn::parse_quote!(
-                    let mut __offset: usize = 0;
-                ));
-            }
-
-            let dyn_count = arg_classes
-                .iter()
-                .filter(|cls| !matches!(cls, ArgClass::Fixed))
-                .count();
-            let mut dyn_idx = 0usize;
-
-            for (i, cls) in arg_classes.iter().enumerate() {
-                let name = &field_names[i];
-                let decode_call = match cls {
-                    ArgClass::Fixed => continue,
-                    ArgClass::Lifetime => {
-                        let ty = &remaining[i].ty;
-                        quote!(<#ty as quasar_lang::instruction_arg::InstructionArgDecode<'_>>::decode(__data, __offset)?)
-                    }
-                    ArgClass::PodDyn(PodDynField::Str { max, prefix_bytes }) => {
-                        quote!(quasar_lang::instruction_data::read_dynamic_str::<#prefix_bytes>(__data, __offset, #max)?)
-                    }
-                    ArgClass::PodDyn(PodDynField::Vec {
-                        elem,
-                        max,
-                        prefix_bytes,
-                    }) => {
-                        quote!(quasar_lang::instruction_data::read_dynamic_vec::<#elem, #prefix_bytes>(__data, __offset, #max)?)
-                    }
-                };
-
-                dyn_idx += 1;
-                if dyn_idx < dyn_count {
-                    new_stmts.push(syn::parse_quote!(
-                        let (#name, __new_offset) = #decode_call;
-                    ));
-                    new_stmts.push(syn::parse_quote!(
-                        __offset = __new_offset;
-                    ));
-                } else {
-                    new_stmts.push(syn::parse_quote!(
-                        let (#name, _) = #decode_call;
-                    ));
-                }
-            }
-            new_stmts.push(syn::parse_quote!(
-                let _ = __offset;
-            ));
         } else {
             // Fixed-only path: keep the current ZeroPodFixed schema.
             let zc_field_names: Vec<_> = field_names.clone();
