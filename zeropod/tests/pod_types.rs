@@ -463,3 +463,51 @@ fn pod_vec_hash() {
     b.hash(&mut hb);
     assert_eq!(ha.finish(), hb.finish());
 }
+
+#[test]
+fn pod_option_take() {
+    let mut opt = PodOption::<PodU64>::some(PodU64::from(42u64));
+    let taken = opt.take();
+    assert_eq!(taken, Some(PodU64::from(42u64)));
+    assert!(opt.is_none());
+}
+
+#[test]
+fn pod_option_replace() {
+    let mut opt = PodOption::<PodU64>::some(PodU64::from(42u64));
+    let old = opt.replace(PodU64::from(99u64));
+    assert_eq!(old, Some(PodU64::from(42u64)));
+    assert_eq!(opt.get(), Some(PodU64::from(99u64)));
+}
+
+#[test]
+fn pod_option_clear() {
+    let mut opt = PodOption::<PodU64>::some(PodU64::from(42u64));
+    opt.clear();
+    assert!(opt.is_none());
+}
+
+#[test]
+fn pod_option_unwrap_or() {
+    let some = PodOption::<PodU64>::some(PodU64::from(42u64));
+    let none = PodOption::<PodU64>::none();
+    assert_eq!(some.unwrap_or(PodU64::from(0u64)), PodU64::from(42u64));
+    assert_eq!(none.unwrap_or(PodU64::from(99u64)), PodU64::from(99u64));
+}
+
+#[test]
+fn pod_option_map_or() {
+    let some = PodOption::<PodU64>::some(PodU64::from(10u64));
+    let none = PodOption::<PodU64>::none();
+    assert_eq!(some.map_or(0u64, |v| v.get() * 2), 20u64);
+    assert_eq!(none.map_or(99u64, |v| v.get() * 2), 99u64);
+}
+
+#[test]
+fn pod_option_partial_eq_option() {
+    let a = PodOption::<PodU64>::some(PodU64::from(42u64));
+    assert!(a == Some(PodU64::from(42u64)));
+    assert!(a != None);
+    let b = PodOption::<PodU64>::none();
+    assert!(b == None);
+}
