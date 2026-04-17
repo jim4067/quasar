@@ -4,11 +4,13 @@ use zeropod::{
 };
 
 #[derive(ZeroPod)]
+#[allow(dead_code)]
 struct GenericValue<T: zeropod::ZcField> {
     value: T,
 }
 
 #[derive(ZeroPod)]
+#[allow(dead_code)]
 struct GenericOption<T: zeropod::ZcField> {
     maybe: Option<T>,
 }
