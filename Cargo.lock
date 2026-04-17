@@ -2223,13 +2223,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quasar-pod"
-version = "0.0.0"
-dependencies = [
- "wincode 0.4.9",
-]
-
-[[package]]
 name = "quasar-profile"
 version = "0.0.0"
 dependencies = [
