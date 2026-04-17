@@ -296,6 +296,34 @@ pub(crate) fn classify_pod_dynamic(ty: &Type) -> Option<PodDynField> {
     classify_pod_string(ty).or_else(|| classify_pod_vec(ty))
 }
 
+/// Classify a borrowed reference type as a compact schema field.
+/// `&str` maps to PodDynField::Str, `&[T]` maps to PodDynField::Vec.
+/// Returns None if the type is not a supported reference type.
+pub(crate) fn classify_borrowed_as_compact(
+    ty: &Type,
+    max_n: usize,
+    pfx_override: usize,
+) -> Option<PodDynField> {
+    if let Type::Reference(ref_ty) = ty {
+        if matches!(&*ref_ty.elem, Type::Path(tp) if tp.path.is_ident("str")) {
+            let pfx = if pfx_override == 0 { 1 } else { pfx_override };
+            return Some(PodDynField::Str {
+                max: max_n,
+                prefix_bytes: pfx,
+            });
+        }
+        if let Type::Slice(s) = &*ref_ty.elem {
+            let pfx = if pfx_override == 0 { 2 } else { pfx_override };
+            return Some(PodDynField::Vec {
+                elem: Box::new((*s.elem).clone()),
+                max: max_n,
+                prefix_bytes: pfx,
+            });
+        }
+    }
+    None
+}
+
 pub(crate) fn prefix_bytes_to_rust_type(prefix_bytes: usize) -> proc_macro2::TokenStream {
     match prefix_bytes {
         1 => quote! { u8 },

@@ -3,12 +3,12 @@
 
 use {
     crate::helpers::{
-        classify_lifetime_arg, classify_pod_dynamic, extract_generic_inner_type, is_unit_type,
-        InstructionArgs, PodDynField,
+        classify_borrowed_as_compact, classify_lifetime_arg, classify_pod_dynamic,
+        extract_generic_inner_type, is_unit_type, InstructionArgs, PodDynField,
     },
     proc_macro::TokenStream,
     quote::quote,
-    syn::{parse_macro_input, FnArg, Ident, ItemFn, Pat, ReturnType},
+    syn::{parse_macro_input, FnArg, Ident, ItemFn, Pat, ReturnType, Type},
 };
 
 /// Emit the ZeroPodFixed schema codegen block: derive struct, size check,
@@ -46,6 +46,31 @@ fn emit_fixed_schema_stmts(
         ));
     }
     stmts
+}
+
+/// Parse #[max(N)] or #[max(N, pfx = P)] from a function parameter's attributes.
+fn parse_max_attr_from_fn_arg(pt: &syn::PatType) -> Option<Result<(usize, usize), syn::Error>> {
+    for attr in &pt.attrs {
+        if attr.path().is_ident("max") {
+            return Some(attr.parse_args_with(|stream: syn::parse::ParseStream| {
+                let n: syn::LitInt = stream.parse()?;
+                let max_n: usize = n.base10_parse()?;
+                let mut pfx = 0usize;
+                if !stream.is_empty() {
+                    let _: syn::Token![,] = stream.parse()?;
+                    let key: syn::Ident = stream.parse()?;
+                    if key != "pfx" {
+                        return Err(syn::Error::new(key.span(), "expected `pfx`"));
+                    }
+                    let _: syn::Token![=] = stream.parse()?;
+                    let p: syn::LitInt = stream.parse()?;
+                    pfx = p.base10_parse()?;
+                }
+                Ok((max_n, pfx))
+            }));
+        }
+    }
+    None
 }
 
 pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -172,20 +197,51 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        /// Per-arg classification: fixed-size decode, direct dynamic decode, or
-        /// lifetime-aware decode.
+        /// Per-arg classification: fixed-size or dynamic (compact) decode.
         enum ArgClass {
             Fixed,
             PodDyn(PodDynField),
-            Lifetime,
         }
 
         let mut arg_classes: Vec<ArgClass> = Vec::with_capacity(remaining.len());
         for pt in &remaining {
-            if classify_lifetime_arg(&pt.ty) {
-                arg_classes.push(ArgClass::Lifetime);
-            } else if let Some(pd) = classify_pod_dynamic(&pt.ty) {
+            if let Some(pd) = classify_pod_dynamic(&pt.ty) {
                 arg_classes.push(ArgClass::PodDyn(pd));
+            } else if matches!(&*pt.ty, Type::Reference(_)) {
+                // Borrowed arg — desugar to compact via #[max(N)]
+                match parse_max_attr_from_fn_arg(pt) {
+                    Some(Ok((max_n, pfx))) => {
+                        match classify_borrowed_as_compact(&pt.ty, max_n, pfx) {
+                            Some(pd) => arg_classes.push(ArgClass::PodDyn(pd)),
+                            None => {
+                                return syn::Error::new_spanned(
+                                    &pt.ty,
+                                    "unsupported borrowed type; use &str or &[T]",
+                                )
+                                .to_compile_error()
+                                .into();
+                            }
+                        }
+                    }
+                    Some(Err(e)) => return e.to_compile_error().into(),
+                    None => {
+                        return syn::Error::new_spanned(
+                            &pt.ty,
+                            "borrowed instruction args require #[max(N)] annotation",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                }
+            } else if classify_lifetime_arg(&pt.ty) {
+                // Grouped borrowed struct (e.g., MintArgs<'a>) — not yet supported
+                return syn::Error::new_spanned(
+                    &pt.ty,
+                    "grouped borrowed structs are not yet supported as instruction args. \
+                     Use individual &str / &[T] args with #[max(N)] instead.",
+                )
+                .to_compile_error()
+                .into();
             } else {
                 arg_classes.push(ArgClass::Fixed);
             }
@@ -231,19 +287,6 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
         let has_pod_dyn = arg_classes
             .iter()
             .any(|cls| matches!(cls, ArgClass::PodDyn(_)));
-        let has_lifetime = arg_classes
-            .iter()
-            .any(|cls| matches!(cls, ArgClass::Lifetime));
-
-        if has_lifetime {
-            return syn::Error::new_spanned(
-                &remaining[arg_classes.iter().position(|cls| matches!(cls, ArgClass::Lifetime)).unwrap()],
-                "#[instruction] does not yet support lifetime arguments. \
-                 Use String<N> or Vec<T, N> for dynamic fields.",
-            )
-            .to_compile_error()
-            .into();
-        }
 
         let use_compact = has_pod_dyn;
 
@@ -276,7 +319,6 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
                     }) => {
                         quote!(zeropod::pod::PodVec<#elem, #max, #prefix_bytes>)
                     }
-                    ArgClass::Lifetime => unreachable!("use_compact excludes lifetime args"),
                 })
                 .collect();
 
@@ -314,7 +356,6 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
                             let #name = __ref.#name();
                         ));
                     }
-                    ArgClass::Lifetime => unreachable!(),
                 }
             }
         } else {
