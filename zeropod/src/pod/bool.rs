@@ -93,3 +93,35 @@ impl fmt::Debug for PodBool {
 
 const _: () = assert!(core::mem::align_of::<PodBool>() == 1);
 const _: () = assert!(core::mem::size_of::<PodBool>() == 1);
+
+// ---------------------------------------------------------------------------
+// Kani model-checking proof harnesses
+// ---------------------------------------------------------------------------
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn bool_roundtrip() {
+        let v: bool = kani::any();
+        let pod = PodBool::from(v);
+        assert!(pod.get() == v, "bool roundtrip must preserve value");
+    }
+
+    #[kani::proof]
+    fn any_nonzero_is_true() {
+        let byte: u8 = kani::any();
+        // Construct PodBool from a raw byte. PodBool is #[repr(transparent)]
+        // over [u8; 1], so this transmute is sound for any bit pattern.
+        let pod: PodBool = unsafe { core::mem::transmute([byte]) };
+        assert!(pod.get() == (byte != 0), "any nonzero byte must be true");
+    }
+
+    #[kani::proof]
+    fn not_involution() {
+        let v: bool = kani::any();
+        let pod = PodBool::from(v);
+        assert!(!!pod == pod, "double negation must be identity");
+    }
+}
