@@ -343,10 +343,10 @@ fn pod_bool_helpers() {
 fn pod_bool_bitops() {
     let t = PodBool::from(true);
     let f = PodBool::from(false);
-    assert_eq!((t & true).get(), true);
-    assert_eq!((t & false).get(), false);
-    assert_eq!((f | true).get(), true);
-    assert_eq!((f | false).get(), false);
+    assert!((t & true).get());
+    assert!(!(t & false).get());
+    assert!((f | true).get());
+    assert!(!(f | false).get());
 }
 
 #[test]
