@@ -4,7 +4,8 @@
 use {
     crate::helpers::{
         classify_borrowed_as_compact, classify_lifetime_arg, classify_pod_dynamic,
-        extract_generic_inner_type, is_unit_type, InstructionArgs, PodDynField,
+        extract_generic_inner_type, is_unit_type, pod_dyn_to_compact_type, InstructionArgs,
+        PodDynField,
     },
     proc_macro::TokenStream,
     quote::quote,
@@ -369,16 +370,7 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
                         let ty = &pt.ty;
                         quote!(#ty)
                     }
-                    ArgClass::PodDyn(PodDynField::Str { max, prefix_bytes }) => {
-                        quote!(zeropod::pod::PodString<#max, #prefix_bytes>)
-                    }
-                    ArgClass::PodDyn(PodDynField::Vec {
-                        elem,
-                        max,
-                        prefix_bytes,
-                    }) => {
-                        quote!(zeropod::pod::PodVec<#elem, #max, #prefix_bytes>)
-                    }
+                    ArgClass::PodDyn(ref pd) => pod_dyn_to_compact_type(pd),
                 })
                 .collect();
 
