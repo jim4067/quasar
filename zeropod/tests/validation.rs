@@ -303,3 +303,35 @@ fn pod_option_invalid_tag_is_not_some() {
     // get() must return None for invalid tags.
     assert_eq!(opt.get(), None);
 }
+
+// --- Wincode: PodOption inner validation ---
+
+#[cfg(feature = "wincode")]
+mod wincode_option_validation {
+    use zeropod::pod::{PodBool, PodOption};
+
+    #[test]
+    fn wincode_read_rejects_option_with_invalid_inner() {
+        // Construct raw bytes: tag=1 (Some), inner byte=5 (invalid PodBool).
+        let bytes: [u8; 2] = [1, 5];
+        let result = wincode::deserialize::<PodOption<PodBool>>(&bytes);
+        assert!(
+            result.is_err(),
+            "wincode SchemaRead must reject PodOption<PodBool> with invalid inner byte"
+        );
+    }
+
+    #[test]
+    fn wincode_read_accepts_valid_option_some() {
+        let bytes: [u8; 2] = [1, 1]; // tag=1, inner=1 (true)
+        let result = wincode::deserialize::<PodOption<PodBool>>(&bytes);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn wincode_read_accepts_valid_option_none() {
+        let bytes: [u8; 2] = [0, 0]; // tag=0
+        let result = wincode::deserialize::<PodOption<PodBool>>(&bytes);
+        assert!(result.is_ok());
+    }
+}
