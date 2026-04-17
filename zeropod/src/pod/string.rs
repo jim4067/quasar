@@ -1,5 +1,7 @@
 use core::mem::MaybeUninit;
 
+use crate::error::ZeroPodError;
+
 /// Returns the maximum `N` value representable by a `PFX`-byte length prefix.
 ///
 /// Returns `0` for invalid `PFX` values, which causes `_CAP_CHECK` to fire.
@@ -107,31 +109,25 @@ impl<const N: usize, const PFX: usize> PodString<N, PFX> {
         unsafe { core::slice::from_raw_parts(self.data.as_ptr() as *const u8, len) }
     }
 
-    #[must_use = "returns false if value exceeds capacity — unhandled means the write was silently \
-                  skipped"]
-    #[inline(always)]
-    pub fn set(&mut self, value: &str) -> bool {
+    pub fn try_set(&mut self, value: &str) -> Result<(), ZeroPodError> {
         let vlen = value.len();
         if vlen > N {
-            return false;
+            return Err(ZeroPodError::Overflow);
         }
         unsafe {
             core::ptr::copy_nonoverlapping(value.as_ptr(), self.data.as_mut_ptr() as *mut u8, vlen);
         }
         self.encode_len(vlen);
-        true
+        Ok(())
     }
 
-    #[must_use = "returns false if appending would exceed capacity — unhandled means the append \
-                  was silently skipped"]
-    #[inline(always)]
-    pub fn push_str(&mut self, value: &str) -> bool {
+    pub fn try_push_str(&mut self, value: &str) -> Result<(), ZeroPodError> {
         let cur = self.len();
         let vlen = value.len();
-        if vlen > N - cur {
-            return false;
-        }
         let new_len = cur + vlen;
+        if new_len > N {
+            return Err(ZeroPodError::Overflow);
+        }
         unsafe {
             core::ptr::copy_nonoverlapping(
                 value.as_ptr(),
@@ -140,7 +136,31 @@ impl<const N: usize, const PFX: usize> PodString<N, PFX> {
             );
         }
         self.encode_len(new_len);
-        true
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub fn chars(&self) -> core::str::Chars<'_> {
+        self.as_str().chars()
+    }
+
+    #[inline(always)]
+    pub fn bytes(&self) -> core::str::Bytes<'_> {
+        self.as_str().bytes()
+    }
+
+    #[must_use = "returns false if value exceeds capacity — unhandled means the write was silently \
+                  skipped"]
+    #[inline(always)]
+    pub fn set(&mut self, value: &str) -> bool {
+        self.try_set(value).is_ok()
+    }
+
+    #[must_use = "returns false if appending would exceed capacity — unhandled means the append \
+                  was silently skipped"]
+    #[inline(always)]
+    pub fn push_str(&mut self, value: &str) -> bool {
+        self.try_push_str(value).is_ok()
     }
 
     #[inline(always)]
@@ -276,5 +296,11 @@ impl<const N: usize, const PFX: usize> core::fmt::Debug for PodString<N, PFX> {
 impl<const N: usize, const PFX: usize> core::fmt::Display for PodString<N, PFX> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl<const N: usize, const PFX: usize> core::hash::Hash for PodString<N, PFX> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
     }
 }

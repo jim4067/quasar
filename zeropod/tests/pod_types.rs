@@ -362,3 +362,55 @@ fn pod_bool_set() {
     b.set(true);
     assert!(b.get());
 }
+
+#[test]
+fn pod_string_try_set() {
+    let mut s = PodString::<4>::default();
+    assert!(s.try_set("hi").is_ok());
+    assert_eq!(s.as_str(), "hi");
+    assert!(s.try_set("toolong").is_err());
+    assert_eq!(s.as_str(), "hi"); // unchanged on error
+}
+
+#[test]
+fn pod_string_try_push_str() {
+    let mut s = PodString::<6>::default();
+    assert!(s.try_push_str("hel").is_ok());
+    assert!(s.try_push_str("lo!").is_ok());
+    assert_eq!(s.as_str(), "hello!");
+    assert!(s.try_push_str("x").is_err()); // full
+}
+
+#[test]
+fn pod_string_capacity() {
+    let s = PodString::<32>::default();
+    assert_eq!(s.capacity(), 32);
+}
+
+#[test]
+fn pod_string_chars_bytes() {
+    let mut s = PodString::<32>::default();
+    s.try_set("hello").unwrap();
+    assert_eq!(s.chars().count(), 5);
+    assert_eq!(s.bytes().count(), 5);
+}
+
+#[test]
+fn pod_string_hash() {
+    let mut a = PodString::<32>::default();
+    let mut b = PodString::<32>::default();
+    a.try_set("test").unwrap();
+    b.try_set("test").unwrap();
+    let mut ha = TestHasher(0);
+    let mut hb = TestHasher(0);
+    a.hash(&mut ha);
+    b.hash(&mut hb);
+    assert_eq!(ha.finish(), hb.finish());
+}
+
+#[test]
+fn pod_string_eq_str() {
+    let mut s = PodString::<32>::default();
+    s.try_set("hello").unwrap();
+    assert!(s == *"hello"); // PartialEq<str>
+}
