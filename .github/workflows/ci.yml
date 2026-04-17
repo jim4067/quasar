@@ -27,7 +27,8 @@ jobs:
         with:
           filters: |
             kani:
-              - 'pod/**'
+              - 'zeropod/**'
+              - 'zeropod-derive/**'
               - 'lang/**'
               - 'spl/**'
               - 'Cargo.lock'
@@ -240,7 +241,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [quasar-pod, quasar-lang, quasar-spl]
+        crate: [quasar-lang, quasar-spl]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/cache@v5

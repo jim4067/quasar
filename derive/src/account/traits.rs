@@ -7,8 +7,7 @@ pub(super) struct AccountCheckSpec<'a> {
     pub disc_indices: &'a [usize],
     pub disc_bytes: &'a [syn::LitInt],
     pub zc_path: &'a proc_macro2::TokenStream,
-    pub prefix_total: usize,
-    pub validation_stmts: &'a [proc_macro2::TokenStream],
+    pub zc_mod: &'a syn::Ident,
 }
 
 pub(super) fn emit_discriminator_impl(
@@ -37,13 +36,14 @@ pub(super) fn emit_space_impl(
     field_infos: &[PodFieldInfo<'_>],
     has_dynamic: bool,
     disc_len: usize,
-    zc_path: &proc_macro2::TokenStream,
-    prefix_total: usize,
+    zc_mod: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     if has_dynamic {
+        // Space = discriminator + compact header size (includes length prefixes).
         quote! {
             impl Space for #name {
-                const SPACE: usize = #disc_len + core::mem::size_of::<#zc_path>() + #prefix_total;
+                const SPACE: usize = #disc_len
+                    + <#zc_mod::__Schema as quasar_lang::ZeroPodCompact>::HEADER_SIZE;
             }
         }
     } else {
@@ -67,11 +67,12 @@ pub(super) fn emit_account_check_impl(spec: AccountCheckSpec<'_>) -> proc_macro2
         disc_indices,
         disc_bytes,
         zc_path,
-        prefix_total,
-        validation_stmts,
+        zc_mod,
     } = spec;
 
     if has_dynamic {
+        // Single ZeroPodCompact::validate call replaces all manual prefix walks.
+        // It validates: header size, all prefix values <= max, tail bounds, UTF-8.
         quote! {
             impl AccountCheck for #name {
                 type Params = ();
@@ -79,9 +80,9 @@ pub(super) fn emit_account_check_impl(spec: AccountCheckSpec<'_>) -> proc_macro2
                 #[inline(always)]
                 fn check(view: &AccountView) -> Result<(), ProgramError> {
                     let __data = unsafe { view.borrow_unchecked() };
-                    let __data_len = __data.len();
-                    let __min = #disc_len + core::mem::size_of::<#zc_path>() + #prefix_total;
-                    if __data_len < __min {
+                    let __min = #disc_len
+                        + <#zc_mod::__Schema as quasar_lang::ZeroPodCompact>::HEADER_SIZE;
+                    if __data.len() < __min {
                         return Err(ProgramError::AccountDataTooSmall);
                     }
                     #(
@@ -89,9 +90,9 @@ pub(super) fn emit_account_check_impl(spec: AccountCheckSpec<'_>) -> proc_macro2
                             return Err(ProgramError::InvalidAccountData);
                         }
                     )*
-                    let mut __offset = #disc_len + core::mem::size_of::<#zc_path>();
-                    #(#validation_stmts)*
-                    let _ = __offset;
+                    <#zc_mod::__Schema as quasar_lang::ZeroPodCompact>::validate(
+                        &__data[#disc_len..]
+                    ).map_err(|_| ProgramError::InvalidAccountData)?;
                     Ok(())
                 }
             }
@@ -112,6 +113,9 @@ pub(super) fn emit_account_check_impl(spec: AccountCheckSpec<'_>) -> proc_macro2
                             return Err(ProgramError::InvalidAccountData);
                         }
                     )*
+                    <#zc_mod::__Schema as quasar_lang::ZeroPodFixed>::validate(
+                        &__data[#disc_len..#disc_len + core::mem::size_of::<#zc_path>()]
+                    ).map_err(|_| ProgramError::InvalidAccountData)?;
                     Ok(())
                 }
             }

@@ -1,7 +1,4 @@
-use {
-    crate::state::DynamicAccount,
-    quasar_lang::{prelude::*, sysvars::Sysvar as _},
-};
+use {crate::state::DynamicAccount, quasar_lang::prelude::*};
 
 #[derive(Accounts)]
 pub struct DynamicViewMutMissingField {
@@ -15,18 +12,23 @@ pub struct DynamicViewMutMissingField {
 impl DynamicViewMutMissingField {
     #[inline(always)]
     pub fn handler(&mut self, new_name: &str) -> Result<(), ProgramError> {
-        let rent = Rent::get()?;
-        let mut view = self.account.as_dynamic_writer(
-            self.payer.to_account_view(),
-            rent.lamports_per_byte(),
-            rent.exemption_threshold_raw(),
-        );
-        view.set_name(new_name)?;
+        // Snapshot the current tags count before mutation.
+        let tags_count_before = self.account.tags().len();
 
-        match view.commit() {
-            Err(err) if err == QuasarError::DynWriterFieldNotSet.into() => Ok(()),
-            Err(err) => Err(err),
-            Ok(()) => Err(ProgramError::InvalidInstructionData),
+        {
+            let mut guard = self.account.as_mut(self.payer.to_account_view());
+            // Only set name — tags should be preserved automatically.
+            if !guard.name.set(new_name) {
+                return Err(ProgramError::InvalidInstructionData);
+            }
         }
+
+        // Verify untouched tags were preserved.
+        let tags_count_after = self.account.tags().len();
+        if tags_count_before != tags_count_after {
+            return Err(ProgramError::Custom(20));
+        }
+
+        Ok(())
     }
 }

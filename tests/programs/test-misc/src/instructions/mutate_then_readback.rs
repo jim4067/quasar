@@ -1,7 +1,4 @@
-use {
-    crate::state::DynamicAccount,
-    quasar_lang::{prelude::*, sysvars::Sysvar as _},
-};
+use {crate::state::DynamicAccount, quasar_lang::prelude::*};
 
 #[derive(Accounts)]
 pub struct MutateThenReadback {
@@ -15,19 +12,13 @@ pub struct MutateThenReadback {
 impl MutateThenReadback {
     #[inline(always)]
     pub fn handler(&mut self, expected_tags_count: u8, new_name: &str) -> Result<(), ProgramError> {
-        let rent = Rent::get()?;
-
-        // Mutate via guard — auto-saves on drop
+        // Mutate via as_mut guard — only change name, tags preserved automatically
         {
-            let mut guard = self.account.as_dynamic_mut(
-                self.payer.to_account_view(),
-                rent.lamports_per_byte(),
-                rent.exemption_threshold_raw(),
-            );
+            let mut guard = self.account.as_mut(self.payer.to_account_view());
             if !guard.name.set(new_name) {
                 return Err(ProgramError::InvalidInstructionData);
             }
-        } // guard dropped here → flushed to account data
+        }
 
         // Read back from account data to verify the save worked
         let name = self.account.name();
