@@ -393,16 +393,6 @@ fn derive_borrowed_compact(input: DeriveInput, fields: Vec<Field>) -> TokenStrea
         .collect();
 
     let expanded = quote! {
-        const _: () = {
-            use quasar_lang::__zeropod as zeropod;
-
-            #[derive(zeropod::ZeroPod)]
-            #[zeropod(compact)]
-            struct #schema_name {
-                #(#field_names: #schema_field_types,)*
-            }
-        };
-
         impl #impl_generics #name #ty_generics #where_clause {
             #[doc(hidden)]
             #[inline(always)]
