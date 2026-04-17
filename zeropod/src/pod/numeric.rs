@@ -85,19 +85,22 @@ macro_rules! define_pod_common {
                 self.get().checked_div(rhs.into().get()).map(Self::from)
             }
 
-            /// Saturating addition. Clamps at the numeric bounds instead of overflowing.
+            /// Saturating addition. Clamps at the numeric bounds instead of
+            /// overflowing.
             #[inline(always)]
             pub fn saturating_add(self, rhs: impl Into<$name>) -> Self {
                 Self::from(self.get().saturating_add(rhs.into().get()))
             }
 
-            /// Saturating subtraction. Clamps at zero (for unsigned) or the numeric bound (for signed).
+            /// Saturating subtraction. Clamps at zero (for unsigned) or the numeric
+            /// bound (for signed).
             #[inline(always)]
             pub fn saturating_sub(self, rhs: impl Into<$name>) -> Self {
                 Self::from(self.get().saturating_sub(rhs.into().get()))
             }
 
-            /// Saturating multiplication. Clamps at the numeric bounds instead of overflowing.
+            /// Saturating multiplication. Clamps at the numeric bounds instead of
+            /// overflowing.
             #[inline(always)]
             pub fn saturating_mul(self, rhs: impl Into<$name>) -> Self {
                 Self::from(self.get().saturating_mul(rhs.into().get()))

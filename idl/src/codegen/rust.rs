@@ -318,10 +318,16 @@ fn emit_instructions(
 
             if has_dyn {
                 // Compact layout: [fixed fields][all dynamic prefixes][all dynamic data]
-                let fixed_args: Vec<_> =
-                    ix.args.iter().filter(|a| !is_direct_dynamic(&a.ty)).collect();
-                let dyn_args: Vec<_> =
-                    ix.args.iter().filter(|a| is_direct_dynamic(&a.ty)).collect();
+                let fixed_args: Vec<_> = ix
+                    .args
+                    .iter()
+                    .filter(|a| !is_direct_dynamic(&a.ty))
+                    .collect();
+                let dyn_args: Vec<_> = ix
+                    .args
+                    .iter()
+                    .filter(|a| is_direct_dynamic(&a.ty))
+                    .collect();
 
                 mod_rs.push_str("            let mut offset = 0usize;\n");
 
@@ -337,8 +343,7 @@ fn emit_instructions(
                     .expect("write to String");
                     writeln!(
                         mod_rs,
-                        "            offset += \
-                         wincode::serialized_size(&{name}).ok()? as usize;",
+                        "            offset += wincode::serialized_size(&{name}).ok()? as usize;",
                     )
                     .expect("write to String");
                 }
@@ -347,23 +352,18 @@ fn emit_instructions(
                 for arg in &dyn_args {
                     let name = camel_to_snake(&arg.name);
                     let pfx = dynamic_prefix_bytes(&arg.ty);
-                    writeln!(mod_rs, "            let {name}_len = {{")
-                        .expect("write to String");
+                    writeln!(mod_rs, "            let {name}_len = {{").expect("write to String");
                     writeln!(mod_rs, "                let mut buf = [0u8; 8];")
                         .expect("write to String");
                     writeln!(
                         mod_rs,
-                        "                buf[..{pfx}].copy_from_slice(\
-                         &payload[offset..offset + {pfx}]);"
+                        "                buf[..{pfx}].copy_from_slice(&payload[offset..offset + \
+                         {pfx}]);"
                     )
                     .expect("write to String");
-                    writeln!(mod_rs, "                offset += {pfx};")
+                    writeln!(mod_rs, "                offset += {pfx};").expect("write to String");
+                    writeln!(mod_rs, "                u64::from_le_bytes(buf) as usize")
                         .expect("write to String");
-                    writeln!(
-                        mod_rs,
-                        "                u64::from_le_bytes(buf) as usize"
-                    )
-                    .expect("write to String");
                     mod_rs.push_str("            };\n");
                 }
 
@@ -375,8 +375,8 @@ fn emit_instructions(
                         IdlType::DynString { .. } => {
                             writeln!(
                                 mod_rs,
-                                "            let {name}: {rty} = \
-                                 payload[offset..offset + {name}_len].to_vec().into();"
+                                "            let {name}: {rty} = payload[offset..offset + \
+                                 {name}_len].to_vec().into();"
                             )
                             .expect("write to String");
                             writeln!(mod_rs, "            offset += {name}_len;")
@@ -388,15 +388,11 @@ fn emit_instructions(
                                 .expect("write to String");
                             writeln!(
                                 mod_rs,
-                                "                let mut items = \
-                                 Vec::with_capacity({name}_len);"
+                                "                let mut items = Vec::with_capacity({name}_len);"
                             )
                             .expect("write to String");
-                            writeln!(
-                                mod_rs,
-                                "                for _ in 0..{name}_len {{"
-                            )
-                            .expect("write to String");
+                            writeln!(mod_rs, "                for _ in 0..{name}_len {{")
+                                .expect("write to String");
                             writeln!(
                                 mod_rs,
                                 "                    let item: {item_ty} = \
@@ -429,8 +425,7 @@ fn emit_instructions(
                     if arg_count == 1 {
                         writeln!(
                             mod_rs,
-                            "            let {name}: {rty} = \
-                             wincode::deserialize(payload).ok()?;",
+                            "            let {name}: {rty} = wincode::deserialize(payload).ok()?;",
                         )
                         .expect("write to String");
                     } else {
@@ -443,8 +438,8 @@ fn emit_instructions(
                         if i + 1 < arg_count {
                             writeln!(
                                 mod_rs,
-                                "            offset += \
-                                 wincode::serialized_size(&{name}).ok()? as usize;",
+                                "            offset += wincode::serialized_size(&{name}).ok()? as \
+                                 usize;",
                             )
                             .expect("write to String");
                         }
@@ -564,8 +559,16 @@ fn emit_single_instruction(
     } else {
         writeln!(out, "        let mut data = vec![{}];", disc_str).expect("write to String");
 
-        let fixed_args: Vec<_> = ix.args.iter().filter(|a| !is_direct_dynamic(&a.ty)).collect();
-        let dyn_args: Vec<_> = ix.args.iter().filter(|a| is_direct_dynamic(&a.ty)).collect();
+        let fixed_args: Vec<_> = ix
+            .args
+            .iter()
+            .filter(|a| !is_direct_dynamic(&a.ty))
+            .collect();
+        let dyn_args: Vec<_> = ix
+            .args
+            .iter()
+            .filter(|a| is_direct_dynamic(&a.ty))
+            .collect();
 
         // Phase 1: fixed fields (serialised via wincode — order preserving)
         for arg in &fixed_args {
@@ -588,8 +591,8 @@ fn emit_single_instruction(
                         // DynString byte length via public accessor
                         writeln!(
                             out,
-                            "        data.extend_from_slice(&(ix.{name}.len() as u64)\
-                             .to_le_bytes()[..{pfx}]);"
+                            "        data.extend_from_slice(&(ix.{name}.len() as \
+                             u64).to_le_bytes()[..{pfx}]);"
                         )
                         .expect("write to String");
                     }
@@ -597,8 +600,8 @@ fn emit_single_instruction(
                         // DynVec inner items: .0 is Vec<T>
                         writeln!(
                             out,
-                            "        data.extend_from_slice(&(ix.{name}.len() as u64)\
-                             .to_le_bytes()[..{pfx}]);"
+                            "        data.extend_from_slice(&(ix.{name}.len() as \
+                             u64).to_le_bytes()[..{pfx}]);"
                         )
                         .expect("write to String");
                     }
@@ -615,15 +618,12 @@ fn emit_single_instruction(
                             .expect("write to String");
                     }
                     IdlType::DynVec { .. } => {
+                        writeln!(out, "        for item in ix.{name}.iter() {{")
+                            .expect("write to String");
                         writeln!(
                             out,
-                            "        for item in ix.{name}.iter() {{"
-                        )
-                        .expect("write to String");
-                        writeln!(
-                            out,
-                            "            wincode::serialize_into(&mut data, item)\
-                             .expect(\"serialization into Vec<u8> is infallible\");"
+                            "            wincode::serialize_into(&mut data, \
+                             item).expect(\"serialization into Vec<u8> is infallible\");"
                         )
                         .expect("write to String");
                         out.push_str("        }\n");
@@ -1154,7 +1154,10 @@ fn emit_manual_impls(
     // Collect unique types for trait bounds. Fixed fields use their full type.
     // Dynamic DynVec fields need bounds on their inner item type.
     let unique_bound_types: Vec<String> = {
-        let mut types: Vec<String> = fixed_fields.iter().map(|(_, ty, _)| ty.to_string()).collect();
+        let mut types: Vec<String> = fixed_fields
+            .iter()
+            .map(|(_, ty, _)| ty.to_string())
+            .collect();
         for (_, _, idl_f) in &dyn_fields {
             if let IdlType::DynVec { vec } = &idl_f.ty {
                 types.push(rust_field_type(&vec.items));
@@ -1210,11 +1213,7 @@ fn emit_manual_impls(
             IdlType::DynVec { vec } => {
                 let item_ty = rust_field_type(&vec.items);
                 write!(out, "\n            + {{").expect("write to String");
-                write!(
-                    out,
-                    "\n                let mut s = 0usize;"
-                )
-                .expect("write to String");
+                write!(out, "\n                let mut s = 0usize;").expect("write to String");
                 write!(
                     out,
                     "\n                for item in src.{field_name}.iter() {{"
@@ -1256,16 +1255,16 @@ fn emit_manual_impls(
                 IdlType::DynString { .. } => {
                     writeln!(
                         out,
-                        "        writer.write(&(src.{field_name}.len() as u64)\
-                         .to_le_bytes()[..{pfx}])?;"
+                        "        writer.write(&(src.{field_name}.len() as \
+                         u64).to_le_bytes()[..{pfx}])?;"
                     )
                     .expect("write to String");
                 }
                 IdlType::DynVec { .. } => {
                     writeln!(
                         out,
-                        "        writer.write(&(src.{field_name}.len() as u64)\
-                         .to_le_bytes()[..{pfx}])?;"
+                        "        writer.write(&(src.{field_name}.len() as \
+                         u64).to_le_bytes()[..{pfx}])?;"
                     )
                     .expect("write to String");
                 }
@@ -1383,8 +1382,7 @@ fn emit_manual_impls(
             .expect("write to String");
             writeln!(out, "            buf[..{pfx}].copy_from_slice(pfx_bytes);")
                 .expect("write to String");
-            writeln!(out, "            u64::from_le_bytes(buf) as usize")
-                .expect("write to String");
+            writeln!(out, "            u64::from_le_bytes(buf) as usize").expect("write to String");
             out.push_str("        };\n");
         }
 

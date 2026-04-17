@@ -129,7 +129,13 @@ pub(super) fn emit_dyn_guard(
     let load_stmts: Vec<proc_macro2::TokenStream> = pieces
         .dyn_fields
         .iter()
-        .map(|(field, pd)| compact_guard_load(field.ident.as_ref().expect("field must be named"), pd, zc_mod))
+        .map(|(field, pd)| {
+            compact_guard_load(
+                field.ident.as_ref().expect("field must be named"),
+                pd,
+                zc_mod,
+            )
+        })
         .collect();
     let field_names: Vec<&syn::Ident> = pieces
         .dyn_fields
@@ -492,10 +498,7 @@ fn compact_guard_load(
 }
 
 /// Size contribution of a guard field's current content (for tail region).
-fn compact_guard_size_term(
-    name: &syn::Ident,
-    dyn_field: &PodDynField,
-) -> proc_macro2::TokenStream {
+fn compact_guard_size_term(name: &syn::Ident, dyn_field: &PodDynField) -> proc_macro2::TokenStream {
     match dyn_field {
         PodDynField::Str { .. } => quote! { + self.#name.len() },
         PodDynField::Vec { elem, .. } => {
@@ -506,10 +509,7 @@ fn compact_guard_size_term(
 }
 
 /// Set a dynamic field on a CompactMut from the guard's PodString/PodVec.
-fn compact_guard_set_stmt(
-    name: &syn::Ident,
-    dyn_field: &PodDynField,
-) -> proc_macro2::TokenStream {
+fn compact_guard_set_stmt(name: &syn::Ident, dyn_field: &PodDynField) -> proc_macro2::TokenStream {
     let setter = format_ident!("set_{}", name);
     match dyn_field {
         PodDynField::Str { .. } => quote! {
@@ -576,10 +576,7 @@ fn writer_space_term(name: &syn::Ident, dyn_field: &PodDynField) -> proc_macro2:
     }
 }
 
-fn writer_compact_set_stmt(
-    name: &syn::Ident,
-    dyn_field: &PodDynField,
-) -> proc_macro2::TokenStream {
+fn writer_compact_set_stmt(name: &syn::Ident, dyn_field: &PodDynField) -> proc_macro2::TokenStream {
     let setter = format_ident!("set_{}", name);
     match dyn_field {
         PodDynField::Str { .. } => quote! {

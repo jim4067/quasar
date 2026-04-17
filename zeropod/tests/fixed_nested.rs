@@ -1,5 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
+use zeropod::{ZeroPod, ZeroPodFixed};
 
 #[allow(dead_code)]
 #[derive(ZeroPod)]
@@ -20,13 +19,21 @@ struct Outer {
 #[test]
 fn nested_size() {
     assert_eq!(<Inner as zeropod::ZeroPodFixed>::SIZE, 10); // PodU64(8) + u8(1) + PodBool(1)
-    assert_eq!(<Outer as zeropod::ZeroPodFixed>::SIZE, 50); // [u8;32](32) + InnerZc(10) + PodU64(8)
+    assert_eq!(<Outer as zeropod::ZeroPodFixed>::SIZE, 50); // [u8;32](32) +
+                                                            // InnerZc(10) +
+                                                            // PodU64(8)
 }
 
 #[test]
 fn nested_alignment() {
-    assert_eq!(core::mem::align_of::<<Inner as zeropod::ZeroPodFixed>::Zc>(), 1);
-    assert_eq!(core::mem::align_of::<<Outer as zeropod::ZeroPodFixed>::Zc>(), 1);
+    assert_eq!(
+        core::mem::align_of::<<Inner as zeropod::ZeroPodFixed>::Zc>(),
+        1
+    );
+    assert_eq!(
+        core::mem::align_of::<<Outer as zeropod::ZeroPodFixed>::Zc>(),
+        1
+    );
 }
 
 #[test]

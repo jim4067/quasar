@@ -158,7 +158,9 @@ impl<const N: usize, const PFX: usize> InstructionArg for crate::pod::PodString<
     }
 }
 
-impl<T: zeropod::ZcElem, const N: usize, const PFX: usize> InstructionArg for crate::pod::PodVec<T, N, PFX> {
+impl<T: zeropod::ZcElem, const N: usize, const PFX: usize> InstructionArg
+    for crate::pod::PodVec<T, N, PFX>
+{
     type Zc = Self;
     #[inline(always)]
     fn from_zc(zc: &Self) -> Self {
@@ -219,7 +221,8 @@ impl<'a, T: InstructionArg + 'a> InstructionArgDecode<'a> for T {
 /// Zero-copy companion for `Option<T>`.
 ///
 /// Type alias — `OptionZc` is now backed by `PodOption` from zeropod.
-/// Kept as an alias so existing code that references `OptionZc` keeps compiling.
+/// Kept as an alias so existing code that references `OptionZc` keeps
+/// compiling.
 pub type OptionZc<Z> = crate::pod::PodOption<Z>;
 
 // Compile-time alignment and size checks.
@@ -327,11 +330,14 @@ mod tests {
         );
     }
 
-    /// Build an `OptionZc` with an arbitrary tag byte for testing invalid states.
+    /// Build an `OptionZc` with an arbitrary tag byte for testing invalid
+    /// states.
     fn option_zc_with_tag<Z: Copy>(tag: u8, inner: Z) -> OptionZc<Z> {
         let mut zc = OptionZc::some(inner);
         // SAFETY: PodOption is #[repr(C)] starting with tag: u8
-        unsafe { *((&mut zc) as *mut OptionZc<Z> as *mut u8) = tag; }
+        unsafe {
+            *((&mut zc) as *mut OptionZc<Z> as *mut u8) = tag;
+        }
         zc
     }
 
@@ -456,7 +462,9 @@ mod kani_proofs {
         let tag: u8 = kani::any();
         let mut zc = OptionZc::some(PodU64::from(0u64));
         // SAFETY: PodOption is #[repr(C)] starting with tag: u8
-        unsafe { *((&mut zc) as *mut OptionZc<PodU64> as *mut u8) = tag; }
+        unsafe {
+            *((&mut zc) as *mut OptionZc<PodU64> as *mut u8) = tag;
+        }
         let result = Option::<u64>::validate_zc(&zc);
         assert!(result.is_ok() == (tag <= 1));
     }

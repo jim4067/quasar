@@ -18,7 +18,8 @@ const DYN_BYTES_DISC: u8 = 9;
 const DYN_FIXED_SIZE: usize = 32; // Address
 
 fn build_dynamic_account_data(name: &[u8], tags: &[Address]) -> Vec<u8> {
-    // Compact layout: [disc(1)][header: u8 name_len(1) + u16 tags_count(2)][tail: name_bytes + tag_bytes]
+    // Compact layout: [disc(1)][header: u8 name_len(1) + u16 tags_count(2)][tail:
+    // name_bytes + tag_bytes]
     let name_len = name.len();
     let tags_count = tags.len();
     let tags_bytes = tags_count * 32;
@@ -71,7 +72,8 @@ fn build_mixed_account_data(authority: Address, value: u64, label: &[u8]) -> Vec
 }
 
 fn build_small_prefix_account_data(tag: &[u8], scores: &[u8]) -> Vec<u8> {
-    // Compact layout: [disc(1)][header: u8 tag_len(1) + u16 scores_count(2)][tail: tag_bytes + score_bytes]
+    // Compact layout: [disc(1)][header: u8 tag_len(1) + u16 scores_count(2)][tail:
+    // tag_bytes + score_bytes]
     let tag_len = tag.len();
     let scores_count = scores.len();
     let header_size = 1 + 2; // u8 tag_len + u16 scores_count
@@ -165,7 +167,8 @@ fn build_dynamic_view_mut_instruction(
     new_name: &[u8],
     new_tags: &[Address],
 ) -> Instruction {
-    // Compact layout: [disc(58)][header: u8 name_len, u16 tags_count][tail: name_bytes, tag_bytes]
+    // Compact layout: [disc(58)][header: u8 name_len, u16 tags_count][tail:
+    // name_bytes, tag_bytes]
     let mut data = vec![58];
     // Header: all length prefixes grouped together
     data.push(new_name.len() as u8);

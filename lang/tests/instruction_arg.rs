@@ -7,7 +7,9 @@ use quasar_lang::{
 fn option_zc_with_tag<Z: Copy>(tag: u8, inner: Z) -> OptionZc<Z> {
     let mut zc = OptionZc::some(inner);
     // SAFETY: PodOption is #[repr(C)] starting with tag: u8
-    unsafe { *((&mut zc) as *mut OptionZc<Z> as *mut u8) = tag; }
+    unsafe {
+        *((&mut zc) as *mut OptionZc<Z> as *mut u8) = tag;
+    }
     zc
 }
 

@@ -146,7 +146,8 @@ fn generated_clients_compile_from_fresh_project() -> Result<(), Box<dyn Error>> 
         let cargo_toml_path = rust_client_dir.join("Cargo.toml");
         let cargo_toml = fs::read_to_string(&cargo_toml_path)?;
         let patched = cargo_toml.replace(
-            "quasar-lang = { git = \"https://github.com/blueshift-gg/quasar\", branch = \"master\" }",
+            "quasar-lang = { git = \"https://github.com/blueshift-gg/quasar\", branch = \
+             \"master\" }",
             &format!(
                 "quasar-lang = {{ path = \"{}\" }}",
                 workspace_root().join("lang").display()

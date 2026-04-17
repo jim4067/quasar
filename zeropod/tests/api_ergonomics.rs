@@ -1,6 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
-use zeropod::ZeroPodCompact;
+use zeropod::{ZeroPod, ZeroPodCompact, ZeroPodFixed};
 
 // ============================================================
 // 1. Fixed mode token account

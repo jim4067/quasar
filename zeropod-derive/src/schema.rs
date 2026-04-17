@@ -1,8 +1,9 @@
-use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{DeriveInput, Fields};
-
-use crate::type_map::{classify_field, FieldKind};
+use {
+    crate::type_map::{classify_field, FieldKind},
+    proc_macro2::TokenStream,
+    quote::quote,
+    syn::{DeriveInput, Fields},
+};
 
 pub struct Schema {
     pub name: syn::Ident,
@@ -85,8 +86,8 @@ impl Schema {
                             let inline_name = &f.name;
                             let tail_name = first_tail_name.unwrap();
                             let msg = format!(
-                                "inline field `{inline_name}` cannot come after \
-                                 tail field `{tail_name}` in compact mode"
+                                "inline field `{inline_name}` cannot come after tail field \
+                                 `{tail_name}` in compact mode"
                             );
                             return Err(quote! { compile_error!(#msg); });
                         }

@@ -1,10 +1,7 @@
 //! Acceptance tests for zeropod type tightening.
 //! Verifies ZcElem boundary, error specificity, and compact contract.
 
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
-use zeropod::ZeroPodError;
-use zeropod::pod::*;
+use zeropod::{pod::*, ZeroPod, ZeroPodError, ZeroPodFixed};
 
 // --- ZcElem boundary: all pod types ---
 
@@ -147,8 +144,10 @@ fn zc_field_and_zc_elem_are_independent() {
     fn assert_zc_field<T: zeropod::ZcField>() {}
     fn assert_zc_elem<T: zeropod::ZcElem>() {}
 
-    assert_zc_field::<Color>();     // Color is ZcField
-    assert_zc_elem::<ColorZc>();    // ColorZc is ZcElem
-    // Color is NOT ZcElem — correct, it's a schema type
-    // ColorZc is NOT ZcField — correct, it's a storage type
+    assert_zc_field::<Color>(); // Color is ZcField
+    assert_zc_elem::<ColorZc>(); // ColorZc is ZcElem
+                                 // Color is NOT ZcElem — correct, it's a schema
+                                 // type
+                                 // ColorZc is NOT ZcField — correct, it's a
+                                 // storage type
 }

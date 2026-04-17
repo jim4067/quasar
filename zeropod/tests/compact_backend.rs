@@ -1,5 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodCompact;
+use zeropod::{ZeroPod, ZeroPodCompact};
 
 #[allow(dead_code)]
 #[derive(ZeroPod)]
@@ -16,13 +15,17 @@ struct Profile {
 
 #[test]
 fn compact_header_size() {
-    // authority(32) + PodU64(8) + PodBool(1) + bio_len(1, PFX=1) + tags_len(2, PFX=2) = 44
+    // authority(32) + PodU64(8) + PodBool(1) + bio_len(1, PFX=1) + tags_len(2,
+    // PFX=2) = 44
     assert_eq!(<Profile as zeropod::ZeroPodCompact>::HEADER_SIZE, 44);
 }
 
 #[test]
 fn compact_header_alignment() {
-    assert_eq!(core::mem::align_of::<<Profile as zeropod::ZeroPodCompact>::Header>(), 1);
+    assert_eq!(
+        core::mem::align_of::<<Profile as zeropod::ZeroPodCompact>::Header>(),
+        1
+    );
 }
 
 // --- Ref tests ---
@@ -59,8 +62,9 @@ fn compact_ref_tags_with_data() {
     let mut buf = vec![0u8; 200];
     // bio_len = 0 (offset 41)
     // tags_len at offset 42-43, PFX=2
-    buf[42] = 1; buf[43] = 0; // 1 tag
-    // tags data at offset 44 (header) + 0 (bio empty) = 44
+    buf[42] = 1;
+    buf[43] = 0; // 1 tag
+                 // tags data at offset 44 (header) + 0 (bio empty) = 44
     buf[44..76].copy_from_slice(&[0xAA; 32]);
     let profile = ProfileRef::new(&buf).unwrap();
     assert_eq!(profile.tags().len(), 1);

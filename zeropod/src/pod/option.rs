@@ -11,26 +11,47 @@ const _: () = assert!(core::mem::align_of::<PodOption<u8>>() == 1);
 
 impl<T: Copy> PodOption<T> {
     pub fn none() -> Self {
-        Self { tag: 0, value: MaybeUninit::uninit() }
+        Self {
+            tag: 0,
+            value: MaybeUninit::uninit(),
+        }
     }
     pub fn some(value: T) -> Self {
-        Self { tag: 1, value: MaybeUninit::new(value) }
+        Self {
+            tag: 1,
+            value: MaybeUninit::new(value),
+        }
     }
     #[inline(always)]
-    pub fn is_some(&self) -> bool { self.tag != 0 }
+    pub fn is_some(&self) -> bool {
+        self.tag != 0
+    }
     #[inline(always)]
-    pub fn is_none(&self) -> bool { self.tag == 0 }
+    pub fn is_none(&self) -> bool {
+        self.tag == 0
+    }
     #[inline(always)]
     pub fn get(&self) -> Option<T> {
-        if self.is_some() { Some(unsafe { self.value.assume_init() }) } else { None }
+        if self.is_some() {
+            Some(unsafe { self.value.assume_init() })
+        } else {
+            None
+        }
     }
     pub fn set(&mut self, value: Option<T>) {
         match value {
-            Some(v) => { self.tag = 1; self.value = MaybeUninit::new(v); }
-            None => { self.tag = 0; }
+            Some(v) => {
+                self.tag = 1;
+                self.value = MaybeUninit::new(v);
+            }
+            None => {
+                self.tag = 0;
+            }
         }
     }
-    pub fn raw_tag(&self) -> u8 { self.tag }
+    pub fn raw_tag(&self) -> u8 {
+        self.tag
+    }
 
     /// # Safety
     /// Caller must ensure tag == 1 (Some).
@@ -72,7 +93,9 @@ impl<T: Copy> PodOption<T> {
 }
 
 impl<T: Copy> Default for PodOption<T> {
-    fn default() -> Self { Self::none() }
+    fn default() -> Self {
+        Self::none()
+    }
 }
 
 impl<T: Copy + PartialEq> PartialEq for PodOption<T> {

@@ -1,4 +1,8 @@
-use {super::string::max_n_for_pfx, core::mem::MaybeUninit, crate::error::ZeroPodError, crate::traits::ZcElem};
+use {
+    super::string::max_n_for_pfx,
+    crate::{error::ZeroPodError, traits::ZcElem},
+    core::mem::MaybeUninit,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -72,8 +76,8 @@ impl<T: ZcElem, const N: usize, const PFX: usize> PodVec<T, N, PFX> {
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
         let len = self.len();
-        // SAFETY: data[..len] written by push/set methods. MaybeUninit<T> and T have identical
-        // layout. len clamped to N.
+        // SAFETY: data[..len] written by push/set methods. MaybeUninit<T> and T have
+        // identical layout. len clamped to N.
         unsafe { core::slice::from_raw_parts(self.data.as_ptr() as *const T, len) }
     }
 
@@ -343,7 +347,9 @@ impl<T: ZcElem + PartialEq, const N: usize, const PFX: usize> PartialEq<[T]> for
     }
 }
 
-impl<T: ZcElem + PartialEq, const N: usize, const PFX: usize> PartialEq<&[T]> for PodVec<T, N, PFX> {
+impl<T: ZcElem + PartialEq, const N: usize, const PFX: usize> PartialEq<&[T]>
+    for PodVec<T, N, PFX>
+{
     #[inline(always)]
     fn eq(&self, other: &&[T]) -> bool {
         self.as_slice() == *other
@@ -360,7 +366,9 @@ impl<T: ZcElem + core::fmt::Debug, const N: usize, const PFX: usize> core::fmt::
     }
 }
 
-impl<T: ZcElem + core::hash::Hash, const N: usize, const PFX: usize> core::hash::Hash for PodVec<T, N, PFX> {
+impl<T: ZcElem + core::hash::Hash, const N: usize, const PFX: usize> core::hash::Hash
+    for PodVec<T, N, PFX>
+{
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.as_slice().hash(state);
     }

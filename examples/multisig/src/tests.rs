@@ -181,13 +181,15 @@ fn test_set_label() {
 
     // Verify label was stored
     // Compact layout: disc(1) + header(37) + tail(label_data + signers_data)
-    // Header: creator(32) + threshold(1) + bump(1) + label_len(1) + signers_len(2) = 37
+    // Header: creator(32) + threshold(1) + bump(1) + label_len(1) + signers_len(2)
+    // = 37
     let config_data = &result.account(&config).unwrap().data;
     let label_len = config_data[35] as usize; // label_len at offset 1+32+1+1 = 35
     assert_eq!(label_len, label.len(), "label length mismatch");
 
     let tail_start = 1 + 37; // disc + header
-    let stored_label = core::str::from_utf8(&config_data[tail_start..tail_start + label_len]).unwrap();
+    let stored_label =
+        core::str::from_utf8(&config_data[tail_start..tail_start + label_len]).unwrap();
     assert_eq!(stored_label, label, "label content mismatch");
 
     println!("  SET_LABEL CU: {}", result.compute_units_consumed);

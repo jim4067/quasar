@@ -274,9 +274,13 @@ use core::hash::{Hash, Hasher};
 // A minimal hasher for testing
 struct TestHasher(u64);
 impl Hasher for TestHasher {
-    fn finish(&self) -> u64 { self.0 }
+    fn finish(&self) -> u64 {
+        self.0
+    }
     fn write(&mut self, bytes: &[u8]) {
-        for &b in bytes { self.0 = self.0.wrapping_mul(31).wrapping_add(b as u64); }
+        for &b in bytes {
+            self.0 = self.0.wrapping_mul(31).wrapping_add(b as u64);
+        }
     }
 }
 
@@ -304,7 +308,10 @@ fn pod_u64_wrapping() {
     let v = PodU64::from(u64::MAX);
     assert_eq!(v.wrapping_add(1u64).get(), 0u64);
     assert_eq!(PodU64::from(0u64).wrapping_sub(1u64).get(), u64::MAX);
-    assert_eq!(PodU64::from(u64::MAX).wrapping_mul(2u64).get(), u64::MAX.wrapping_mul(2));
+    assert_eq!(
+        PodU64::from(u64::MAX).wrapping_mul(2u64).get(),
+        u64::MAX.wrapping_mul(2)
+    );
 }
 
 #[test]

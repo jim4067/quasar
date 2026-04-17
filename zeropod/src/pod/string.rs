@@ -1,6 +1,4 @@
-use core::mem::MaybeUninit;
-
-use crate::error::ZeroPodError;
+use {crate::error::ZeroPodError, core::mem::MaybeUninit};
 
 /// Returns the maximum `N` value representable by a `PFX`-byte length prefix.
 ///

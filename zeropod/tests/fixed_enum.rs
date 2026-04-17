@@ -1,5 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
+use zeropod::{ZeroPod, ZeroPodFixed};
 
 #[derive(ZeroPod, Debug, PartialEq)]
 #[repr(u8)]

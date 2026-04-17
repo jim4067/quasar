@@ -3,12 +3,11 @@
 //! full fixed-size byte representation via raw pointer cast — matching the
 //! zero-copy layout used on-chain.
 
-use wincode::config::ConfigCore;
-
-use super::string::PodString;
-use super::vec::PodVec;
-use super::option::PodOption;
-use crate::traits::ZcElem;
+use {
+    super::{option::PodOption, string::PodString, vec::PodVec},
+    crate::traits::ZcElem,
+    wincode::config::ConfigCore,
+};
 
 // ---------------------------------------------------------------------------
 // PodString
@@ -38,8 +37,8 @@ unsafe impl<const N: usize, const PFX: usize, C: ConfigCore> wincode::SchemaWrit
     }
 }
 
-unsafe impl<'__de, const N: usize, const PFX: usize, C: ConfigCore>
-    wincode::SchemaRead<'__de, C> for PodString<N, PFX>
+unsafe impl<'__de, const N: usize, const PFX: usize, C: ConfigCore> wincode::SchemaRead<'__de, C>
+    for PodString<N, PFX>
 {
     type Dst = Self;
 
@@ -58,8 +57,8 @@ unsafe impl<'__de, const N: usize, const PFX: usize, C: ConfigCore>
 // PodVec
 // ---------------------------------------------------------------------------
 
-unsafe impl<T: ZcElem, const N: usize, const PFX: usize, C: ConfigCore>
-    wincode::SchemaWrite<C> for PodVec<T, N, PFX>
+unsafe impl<T: ZcElem, const N: usize, const PFX: usize, C: ConfigCore> wincode::SchemaWrite<C>
+    for PodVec<T, N, PFX>
 {
     type Src = Self;
 

@@ -1,6 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
-use zeropod::pod::*;
+use zeropod::{pod::*, ZeroPod, ZeroPodFixed};
 
 #[allow(dead_code)]
 #[derive(ZeroPod)]
@@ -16,7 +14,10 @@ fn fixed_size() {
 
 #[test]
 fn fixed_alignment() {
-    assert_eq!(core::mem::align_of::<<Simple as zeropod::ZeroPodFixed>::Zc>(), 1);
+    assert_eq!(
+        core::mem::align_of::<<Simple as zeropod::ZeroPodFixed>::Zc>(),
+        1
+    );
 }
 
 #[test]
@@ -71,13 +72,17 @@ struct WithCollections {
 
 #[test]
 fn fixed_collections_size() {
-    // [u8;32](32) + PodString<32,1>(1+32=33) + PodVec<u8,10,2>(2+10=12) + PodBool(1) + PodOption<PodU64>(1+8=9) = 87
+    // [u8;32](32) + PodString<32,1>(1+32=33) + PodVec<u8,10,2>(2+10=12) +
+    // PodBool(1) + PodOption<PodU64>(1+8=9) = 87
     assert_eq!(<WithCollections as zeropod::ZeroPodFixed>::SIZE, 87);
 }
 
 #[test]
 fn fixed_collections_alignment() {
-    assert_eq!(core::mem::align_of::<<WithCollections as zeropod::ZeroPodFixed>::Zc>(), 1);
+    assert_eq!(
+        core::mem::align_of::<<WithCollections as zeropod::ZeroPodFixed>::Zc>(),
+        1
+    );
 }
 
 #[test]

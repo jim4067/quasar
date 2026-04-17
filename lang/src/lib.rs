@@ -289,17 +289,15 @@ pub mod utils;
 pub mod validation;
 
 pub use crate::pod::{PodString as String, PodVec as Vec};
-
-// Re-export zeropod traits for framework integration.
-pub use zeropod::{
-    ZcElem, ZcField, ZcValidate, ZeroPodCompact, ZeroPodError, ZeroPodFixed, ZeroPodSchema,
-};
-
 /// Re-export of the `zeropod` crate so that `#[derive(ZeroPod)]` expansion
 /// inside framework-generated code can resolve `zeropod::*` paths without
 /// downstream crates adding a direct dependency.
 #[doc(hidden)]
 pub use zeropod as __zeropod;
+// Re-export zeropod traits for framework integration.
+pub use zeropod::{
+    ZcElem, ZcField, ZcValidate, ZeroPodCompact, ZeroPodError, ZeroPodFixed, ZeroPodSchema,
+};
 
 /// 32-byte address comparison via four `read_unaligned` u64 words.
 ///

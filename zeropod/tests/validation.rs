@@ -1,7 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
-use zeropod::ZeroPodCompact;
-use zeropod::pod::PodBool;
+use zeropod::{pod::PodBool, ZeroPod, ZeroPodCompact, ZeroPodFixed};
 
 #[allow(dead_code)]
 #[derive(ZeroPod)]
@@ -176,7 +173,7 @@ fn compact_validate_rejects_invalid_utf8_in_tail_string() {
     let mut buf = vec![0u8; 100];
     // bio_len at offset 32, PFX=1
     buf[32] = 3; // bio_len = 3
-    // bio data starts at offset 33 (header size = 33)
+                 // bio data starts at offset 33 (header size = 33)
     buf[33] = 0xFF; // invalid UTF-8
     buf[34] = 0xFE;
     buf[35] = 0xFD;
@@ -251,7 +248,7 @@ fn podstring_truncate_snaps_to_char_boundary() {
     use zeropod::pod::PodString;
     let mut s = PodString::<32>::default();
     let _ = s.set("h\u{00e9}llo"); // 'e\u{0301}' — actually \u{00e9} is 2 bytes: [0xC3, 0xA9]
-    // String bytes: h(1) + \u{00e9}(2) + l(1) + l(1) + o(1) = 6 bytes
+                                   // String bytes: h(1) + \u{00e9}(2) + l(1) + l(1) + o(1) = 6 bytes
     assert_eq!(s.len(), 6);
 
     // Truncate at byte 2 — mid-codepoint (inside the 2-byte \u{00e9})

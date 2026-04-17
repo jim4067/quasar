@@ -1,8 +1,11 @@
-use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-
-use crate::schema::Schema;
-use crate::type_map::{map_to_pod_type, FieldKind, TailField};
+use {
+    crate::{
+        schema::Schema,
+        type_map::{map_to_pod_type, FieldKind, TailField},
+    },
+    proc_macro2::TokenStream,
+    quote::{format_ident, quote},
+};
 
 pub fn generate(schema: &Schema) -> TokenStream {
     let struct_name = &schema.name;
@@ -31,7 +34,10 @@ fn generate_header(schema: &Schema, header_name: &syn::Ident) -> TokenStream {
     let mut fields = Vec::new();
 
     let inline_field_names: Vec<&syn::Ident> = schema.inline_fields().map(|f| &f.name).collect();
-    let inline_pod_types: Vec<TokenStream> = schema.inline_fields().map(|f| map_to_pod_type(&f.ty)).collect();
+    let inline_pod_types: Vec<TokenStream> = schema
+        .inline_fields()
+        .map(|f| map_to_pod_type(&f.ty))
+        .collect();
 
     for f in schema.inline_fields() {
         let name = &f.name;
@@ -95,7 +101,8 @@ fn generate_trait_impl(schema: &Schema, header_name: &syn::Ident) -> TokenStream
                     }
                 });
                 tail_size_exprs.push(quote! { #len_name });
-                // We'll add UTF-8 check after total_check when we know the buffer is big enough.
+                // We'll add UTF-8 check after total_check when we know the buffer is big
+                // enough.
                 tail_offset_parts.push(Some(len_name.clone()));
             }
             FieldKind::Tail(TailField::Vec { elem, max, .. }) => {
@@ -127,7 +134,8 @@ fn generate_trait_impl(schema: &Schema, header_name: &syn::Ident) -> TokenStream
         }
     };
 
-    // Build UTF-8 validation for String tail fields (after we know the buffer is big enough).
+    // Build UTF-8 validation for String tail fields (after we know the buffer is
+    // big enough).
     let mut utf8_checks = Vec::new();
     let tail_fields: Vec<_> = schema.tail_fields().collect();
     for (i, f) in tail_fields.iter().enumerate() {
@@ -300,10 +308,13 @@ fn generate_mut(schema: &Schema, header_name: &syn::Ident, mut_name: &syn::Ident
         }
     }
 
-    let edit_inits: Vec<_> = tail_fields.iter().map(|f| {
-        let edit_name = format_ident!("__{}_edit", f.name);
-        quote! { #edit_name: None }
-    }).collect();
+    let edit_inits: Vec<_> = tail_fields
+        .iter()
+        .map(|f| {
+            let edit_name = format_ident!("__{}_edit", f.name);
+            quote! { #edit_name: None }
+        })
+        .collect();
 
     // Setter methods.
     let mut setters = Vec::new();
@@ -586,10 +597,13 @@ fn generate_commit_body(
     }
 
     // Step 6: Clear edit descriptors.
-    let clear_edits: Vec<_> = tail_fields.iter().map(|f| {
-        let edit_name = format_ident!("__{}_edit", f.name);
-        quote! { self.#edit_name = None; }
-    }).collect();
+    let clear_edits: Vec<_> = tail_fields
+        .iter()
+        .map(|f| {
+            let edit_name = format_ident!("__{}_edit", f.name);
+            quote! { self.#edit_name = None; }
+        })
+        .collect();
 
     quote! {
         pub fn commit(&mut self) -> Result<usize, zeropod::ZeroPodError> {
@@ -677,4 +691,3 @@ fn compute_offset_tokens(
         let __offset = #header_size #( + #addends )*;
     }
 }
-

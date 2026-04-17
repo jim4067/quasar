@@ -1,6 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
-use zeropod::pod::*;
+use zeropod::{pod::*, ZeroPod, ZeroPodFixed};
 
 #[allow(dead_code)]
 #[derive(ZeroPod)]
@@ -18,7 +16,10 @@ fn golden_fixed_size() {
 
 #[test]
 fn golden_fixed_alignment() {
-    assert_eq!(core::mem::align_of::<<GoldenFixed as zeropod::ZeroPodFixed>::Zc>(), 1);
+    assert_eq!(
+        core::mem::align_of::<<GoldenFixed as zeropod::ZeroPodFixed>::Zc>(),
+        1
+    );
 }
 
 #[test]

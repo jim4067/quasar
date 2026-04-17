@@ -1,5 +1,7 @@
-use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput};
+use {
+    proc_macro::TokenStream,
+    syn::{parse_macro_input, DeriveInput},
+};
 
 mod compact;
 mod fixed;

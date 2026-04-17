@@ -1,9 +1,7 @@
 //! Comprehensive ergonomics test for enriched pod types.
 //! Every interaction here should feel natural for a Rust developer.
 
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
-use zeropod::pod::*;
+use zeropod::{pod::*, ZeroPod, ZeroPodFixed};
 
 // --- Numeric: feels like native integers ---
 

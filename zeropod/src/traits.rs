@@ -1,5 +1,4 @@
-use crate::error::ZeroPodError;
-use crate::pod::*;
+use crate::{error::ZeroPodError, pod::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutKind {
@@ -18,12 +17,16 @@ pub trait ZcValidate: Copy {
 
 impl ZcValidate for u8 {
     #[inline(always)]
-    fn validate_ref(_: &Self) -> Result<(), ZeroPodError> { Ok(()) }
+    fn validate_ref(_: &Self) -> Result<(), ZeroPodError> {
+        Ok(())
+    }
 }
 
 impl ZcValidate for i8 {
     #[inline(always)]
-    fn validate_ref(_: &Self) -> Result<(), ZeroPodError> { Ok(()) }
+    fn validate_ref(_: &Self) -> Result<(), ZeroPodError> {
+        Ok(())
+    }
 }
 
 macro_rules! impl_zc_validate_trivial {
@@ -41,7 +44,9 @@ impl_zc_validate_trivial!(PodU16, PodU32, PodU64, PodU128, PodI16, PodI32, PodI6
 
 impl<const N: usize> ZcValidate for [u8; N] {
     #[inline(always)]
-    fn validate_ref(_: &Self) -> Result<(), ZeroPodError> { Ok(()) }
+    fn validate_ref(_: &Self) -> Result<(), ZeroPodError> {
+        Ok(())
+    }
 }
 
 // --- ZcValidate: PodBool (byte must be 0 or 1) ---
@@ -52,7 +57,11 @@ impl ZcValidate for PodBool {
         // SAFETY: PodBool is #[repr(transparent)] over [u8; 1], alignment 1.
         // Dereferencing as *const u8 reads the single stored byte.
         let byte = unsafe { *(value as *const PodBool as *const u8) };
-        if byte > 1 { Err(ZeroPodError::InvalidBool) } else { Ok(()) }
+        if byte > 1 {
+            Err(ZeroPodError::InvalidBool)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -61,7 +70,9 @@ impl ZcValidate for PodBool {
 impl<const N: usize, const PFX: usize> ZcValidate for PodString<N, PFX> {
     #[inline(always)]
     fn validate_ref(value: &Self) -> Result<(), ZeroPodError> {
-        if value.decode_len() > N { return Err(ZeroPodError::InvalidLength); }
+        if value.decode_len() > N {
+            return Err(ZeroPodError::InvalidLength);
+        }
         if core::str::from_utf8(value.as_bytes()).is_err() {
             return Err(ZeroPodError::InvalidUtf8);
         }
@@ -74,7 +85,9 @@ impl<const N: usize, const PFX: usize> ZcValidate for PodString<N, PFX> {
 impl<T: ZcElem, const N: usize, const PFX: usize> ZcValidate for PodVec<T, N, PFX> {
     #[inline(always)]
     fn validate_ref(value: &Self) -> Result<(), ZeroPodError> {
-        if value.decode_len() > N { return Err(ZeroPodError::InvalidLength); }
+        if value.decode_len() > N {
+            return Err(ZeroPodError::InvalidLength);
+        }
         for item in value.as_slice() {
             T::validate_ref(item)?;
         }
@@ -108,7 +121,8 @@ impl<T: Copy + ZcValidate> ZcValidate for PodOption<T> {
 /// - `ZcValidate::validate_ref` correctly rejects all invalid bit patterns
 pub unsafe trait ZcElem: Copy + ZcValidate {}
 
-// SAFETY: u8 and i8 are single bytes, trivially align 1, all bit patterns valid.
+// SAFETY: u8 and i8 are single bytes, trivially align 1, all bit patterns
+// valid.
 unsafe impl ZcElem for u8 {}
 unsafe impl ZcElem for i8 {}
 
@@ -167,12 +181,14 @@ pub trait ZeroPodFixed: ZeroPodSchema {
     fn from_bytes_mut(data: &mut [u8]) -> Result<&mut Self::Zc, ZeroPodError>;
     fn validate(data: &[u8]) -> Result<(), ZeroPodError>;
     /// # Safety
-    /// Caller must ensure `data` is at least `Self::SIZE` bytes and contains valid content.
+    /// Caller must ensure `data` is at least `Self::SIZE` bytes and contains
+    /// valid content.
     unsafe fn from_bytes_unchecked(data: &[u8]) -> &Self::Zc {
         &*(data.as_ptr() as *const Self::Zc)
     }
     /// # Safety
-    /// Caller must ensure `data` is at least `Self::SIZE` bytes and contains valid content.
+    /// Caller must ensure `data` is at least `Self::SIZE` bytes and contains
+    /// valid content.
     unsafe fn from_bytes_mut_unchecked(data: &mut [u8]) -> &mut Self::Zc {
         &mut *(data.as_mut_ptr() as *mut Self::Zc)
     }

@@ -1,6 +1,4 @@
-use zeropod::ZeroPod;
-use zeropod::ZeroPodFixed;
-use zeropod::pod::*;
+use zeropod::{pod::*, ZeroPod, ZeroPodFixed};
 
 // --- Fixed roundtrip ---
 
@@ -15,7 +13,8 @@ struct RoundtripFixed {
     pub maybe: Option<u64>,
 }
 
-// Layout: PodU64(8) + PodBool(1) + u8(1) + PodString<16,1>(17) + PodVec<u8,8,2>(10) + PodOption<PodU64>(9) = 46
+// Layout: PodU64(8) + PodBool(1) + u8(1) + PodString<16,1>(17) +
+// PodVec<u8,8,2>(10) + PodOption<PodU64>(9) = 46
 
 #[test]
 fn fixed_roundtrip_write_then_read() {

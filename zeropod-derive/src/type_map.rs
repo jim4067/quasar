@@ -1,7 +1,7 @@
-use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{
-    Expr, ExprLit, GenericArgument, Lit, PathArguments, Type,
+use {
+    proc_macro2::TokenStream,
+    quote::quote,
+    syn::{Expr, ExprLit, GenericArgument, Lit, PathArguments, Type},
 };
 
 // ---------------------------------------------------------------------------

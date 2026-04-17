@@ -1,8 +1,8 @@
-use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-
-use crate::schema::Schema;
-use crate::type_map::map_to_pod_type;
+use {
+    crate::{schema::Schema, type_map::map_to_pod_type},
+    proc_macro2::TokenStream,
+    quote::{format_ident, quote},
+};
 
 pub fn generate(schema: &Schema) -> TokenStream {
     let struct_name = &schema.name;
@@ -22,7 +22,11 @@ pub fn generate(schema: &Schema) -> TokenStream {
 
     // Build ZcValidate field delegation.
     let field_names: Vec<&syn::Ident> = schema.fields.iter().map(|f| &f.name).collect();
-    let pod_field_types: Vec<TokenStream> = schema.fields.iter().map(|f| map_to_pod_type(&f.ty)).collect();
+    let pod_field_types: Vec<TokenStream> = schema
+        .fields
+        .iter()
+        .map(|f| map_to_pod_type(&f.ty))
+        .collect();
 
     quote! {
         #[repr(C)]
@@ -103,7 +107,10 @@ pub fn generate_enum(input: &syn::DeriveInput) -> TokenStream {
 
     for v in variants {
         if !v.fields.is_empty() {
-            let msg = format!("ZeroPod enum variant `{}` must be a unit variant (no data fields)", v.ident);
+            let msg = format!(
+                "ZeroPod enum variant `{}` must be a unit variant (no data fields)",
+                v.ident
+            );
             return quote! { compile_error!(#msg); };
         }
         let disc = match &v.discriminant {
@@ -130,10 +137,7 @@ pub fn generate_enum(input: &syn::DeriveInput) -> TokenStream {
     };
 
     // 4. Build the valid discriminant set for validation.
-    let valid_arms: Vec<TokenStream> = discriminant_values
-        .iter()
-        .map(|d| quote! { #d })
-        .collect();
+    let valid_arms: Vec<TokenStream> = discriminant_values.iter().map(|d| quote! { #d }).collect();
 
     // 5. Build the From<Enum> -> PodType match arms.
     let from_arms: Vec<TokenStream> = variant_names

@@ -403,10 +403,7 @@ pub(crate) fn instruction(attr: TokenStream, item: TokenStream) -> TokenStream {
         } else {
             // Fixed-only path: keep the current ZeroPodFixed schema.
             let zc_field_names: Vec<_> = field_names.clone();
-            let zc_field_orig_types: Vec<_> = remaining
-                .iter()
-                .map(|pt| (*pt.ty).clone())
-                .collect();
+            let zc_field_orig_types: Vec<_> = remaining.iter().map(|pt| (*pt.ty).clone()).collect();
 
             new_stmts.extend(emit_fixed_schema_stmts(
                 &param_ident,
