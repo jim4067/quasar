@@ -26,10 +26,13 @@ pub(super) fn resolve_supports(semantics: &mut [FieldSemantics]) -> syn::Result<
             .or_else(|| sem.mint.as_ref().and_then(|mc| mc.token_program.clone()));
 
         if sem.init.is_some() {
-            sem.support.payer = explicit_payer.or_else(|| index.payer_default.clone());
+            sem.support.payer = explicit_payer
+                .clone()
+                .or_else(|| index.payer_default.clone());
             sem.support.system_program = index.system_program.clone();
             sem.support.rent_sysvar = index.rent_sysvar.clone();
         }
+
 
         if sem.realloc.is_some() {
             sem.support.realloc_payer = explicit_realloc_payer

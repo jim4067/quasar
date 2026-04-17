@@ -1,6 +1,6 @@
 use {
     crate::state::DynamicAccount,
-    quasar_lang::{prelude::*, sysvars::Sysvar as _},
+    quasar_lang::prelude::*,
 };
 
 #[derive(Accounts)]
@@ -18,17 +18,13 @@ impl DynamicViewMutMissingField {
         // Snapshot the current tags count before mutation.
         let tags_count_before = self.account.tags().len();
 
-        let rent = Rent::get()?;
-        let mut guard = self.account.compact_mut(
-            self.payer.to_account_view(),
-            rent.lamports_per_byte(),
-            rent.exemption_threshold_raw(),
-        );
-        // Only set name — tags should be preserved automatically.
-        if !guard.name.set(new_name) {
-            return Err(ProgramError::InvalidInstructionData);
+        {
+            let mut guard = self.account.as_mut(self.payer.to_account_view());
+            // Only set name — tags should be preserved automatically.
+            if !guard.name.set(new_name) {
+                return Err(ProgramError::InvalidInstructionData);
+            }
         }
-        guard.save()?;
 
         // Verify untouched tags were preserved.
         let tags_count_after = self.account.tags().len();

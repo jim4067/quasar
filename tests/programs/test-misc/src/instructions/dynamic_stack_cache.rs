@@ -1,6 +1,6 @@
 use {
     crate::state::DynamicAccount,
-    quasar_lang::{prelude::*, sysvars::Sysvar as _},
+    quasar_lang::prelude::*,
 };
 
 #[derive(Accounts)]
@@ -15,16 +15,10 @@ pub struct DynamicStackCache {
 impl DynamicStackCache {
     #[inline(always)]
     pub fn handler(&mut self, new_name: &str) -> Result<(), ProgramError> {
-        let rent = Rent::get()?;
-        let mut guard = self.account.compact_mut(
-            self.payer.to_account_view(),
-            rent.lamports_per_byte(),
-            rent.exemption_threshold_raw(),
-        );
+        let mut guard = self.account.as_mut(self.payer.to_account_view());
         if !guard.name.set(new_name) {
             return Err(ProgramError::InvalidInstructionData);
         }
-        guard.save()?;
         Ok(())
     }
 }

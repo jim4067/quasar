@@ -1,6 +1,6 @@
 use {
     crate::state::MultisigConfig,
-    quasar_lang::{prelude::*, sysvars::Sysvar as _},
+    quasar_lang::prelude::*,
 };
 
 #[derive(Accounts)]
@@ -20,16 +20,10 @@ pub struct SetLabel {
 impl SetLabel {
     #[inline(always)]
     pub fn update_label(&mut self, label: &str) -> Result<(), ProgramError> {
-        let rent = Rent::get()?;
-        let mut guard = self.config.compact_mut(
-            self.creator.to_account_view(),
-            rent.lamports_per_byte(),
-            rent.exemption_threshold_raw(),
-        );
+        let mut guard = self.config.as_mut(self.creator.to_account_view());
         if !guard.label.set(label) {
             return Err(ProgramError::InvalidInstructionData);
         }
-        guard.save()?;
         Ok(())
     }
 }
