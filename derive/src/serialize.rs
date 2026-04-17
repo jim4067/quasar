@@ -1,10 +1,17 @@
-//! `#[derive(QuasarSerialize)]` — generates instruction-arg impls.
+//! `#[derive(QuasarSerialize)]` — generates instruction-arg type bridges.
 //!
-//! **Fixed structs** (no lifetime params, all fields `Copy`):
-//! 1. A hidden `__NameSchema` struct → zeropod generates `__NameSchemaZc`.
-//! 2. A user-visible alias `NameZc = __NameSchemaZc`.
-//! 3. An `InstructionValue` impl (blanket-implies `InstructionArg`).
-//! 4. Off-chain `SchemaWrite` / `SchemaRead` impls (cfg not-solana).
+//! **Fixed structs** (all fields `Copy`, no lifetimes):
+//! 1. A hidden ZeroPod companion struct.
+//! 2. `InstructionValue` impl for native↔pod conversion.
+//! 3. Off-chain `SchemaWrite` / `SchemaRead` impls.
+//!
+//! **Borrowed structs** (has lifetime params):
+//! 1. A hidden `#[zeropod(compact)]` schema.
+//! 2. A `decode_compact()` method that returns borrowed views from compact Ref.
+//!
+//! **Enums** (repr-backed, unit variants):
+//! 1. `InstructionArg` impl mapping variants to discriminant values.
+//! 2. Off-chain `SchemaWrite` / `SchemaRead` impls.
 
 use {
     crate::helpers::{

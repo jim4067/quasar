@@ -1,8 +1,11 @@
-//! Traits for fixed-size instruction arguments.
+//! Traits for instruction arguments.
 //!
-//! Zeropod owns the storage layout and validation story. Quasar layers its own
-//! native↔pod conversion glue on top so framework-facing types can participate
-//! in instruction decoding without hand-writing full `InstructionArg` impls.
+//! Zeropod owns all storage layout and validation. Quasar provides the
+//! native↔pod conversion bridge so framework types participate in
+//! instruction decoding.
+//!
+//! - Fixed args: `InstructionArg` / `InstructionValue` (zero-copy pointer cast)
+//! - Dynamic args: zeropod compact `Ref` views (zero-copy borrowed access)
 
 use crate::pod::*;
 

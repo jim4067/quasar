@@ -1,3 +1,9 @@
+//! Compact account mutation codegen.
+//!
+//! Generates `compact_mut()` which returns a `CompactWriter` with explicit
+//! `.set_field()` + `.commit()` semantics. Read accessors use zeropod's
+//! compact `Ref` for zero-copy borrowed views.
+
 use {
     super::fixed::PodFieldInfo,
     crate::helpers::{map_to_pod_type, PodDynField},
