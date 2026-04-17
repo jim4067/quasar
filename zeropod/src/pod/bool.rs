@@ -10,6 +10,15 @@ impl PodBool {
     pub fn get(&self) -> bool {
         self.0[0] != 0
     }
+
+    #[inline(always)]
+    pub fn is_true(&self) -> bool { self.get() }
+
+    #[inline(always)]
+    pub fn is_false(&self) -> bool { !self.get() }
+
+    #[inline(always)]
+    pub fn set(&mut self, value: bool) { self.0 = [value as u8]; }
 }
 
 impl From<bool> for PodBool {
@@ -47,6 +56,26 @@ impl core::ops::Not for PodBool {
     fn not(self) -> Self {
         Self::from(!self.get())
     }
+}
+
+impl core::hash::Hash for PodBool {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.get().hash(state);
+    }
+}
+
+impl core::ops::BitAnd<bool> for PodBool {
+    type Output = PodBool;
+    fn bitand(self, rhs: bool) -> PodBool { PodBool::from(self.get() & rhs) }
+}
+
+impl core::ops::BitOr<bool> for PodBool {
+    type Output = PodBool;
+    fn bitor(self, rhs: bool) -> PodBool { PodBool::from(self.get() | rhs) }
+}
+
+impl PartialEq<PodBool> for bool {
+    fn eq(&self, other: &PodBool) -> bool { *self == other.get() }
 }
 
 impl fmt::Display for PodBool {

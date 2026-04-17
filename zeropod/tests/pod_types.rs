@@ -319,3 +319,46 @@ fn pod_i64_wrapping() {
     let v = PodI64::from(i64::MAX);
     assert_eq!(v.wrapping_add(1i64).get(), i64::MIN);
 }
+
+#[test]
+fn pod_bool_hash() {
+    let a = PodBool::from(true);
+    let b = PodBool::from(true);
+    let mut ha = TestHasher(0);
+    let mut hb = TestHasher(0);
+    a.hash(&mut ha);
+    b.hash(&mut hb);
+    assert_eq!(ha.finish(), hb.finish());
+}
+
+#[test]
+fn pod_bool_helpers() {
+    assert!(PodBool::from(true).is_true());
+    assert!(!PodBool::from(true).is_false());
+    assert!(PodBool::from(false).is_false());
+    assert!(!PodBool::from(false).is_true());
+}
+
+#[test]
+fn pod_bool_bitops() {
+    let t = PodBool::from(true);
+    let f = PodBool::from(false);
+    assert_eq!((t & true).get(), true);
+    assert_eq!((t & false).get(), false);
+    assert_eq!((f | true).get(), true);
+    assert_eq!((f | false).get(), false);
+}
+
+#[test]
+fn pod_bool_reverse_eq() {
+    assert!(true == PodBool::from(true));
+    assert!(false == PodBool::from(false));
+    assert!(true != PodBool::from(false));
+}
+
+#[test]
+fn pod_bool_set() {
+    let mut b = PodBool::from(false);
+    b.set(true);
+    assert!(b.get());
+}
