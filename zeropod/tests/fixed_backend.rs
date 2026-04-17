@@ -105,3 +105,9 @@ fn fixed_option_field() {
     zc.maybe.set(Some(PodU64::from(42u64)));
     assert_eq!(zc.maybe.get(), Some(PodU64::from(42u64)));
 }
+
+#[test]
+fn fixed_zc_is_zc_elem() {
+    fn assert_zc_elem<T: zeropod::ZcElem>() {}
+    assert_zc_elem::<SimpleZc>();
+}

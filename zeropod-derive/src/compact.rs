@@ -229,17 +229,17 @@ fn generate_ref(schema: &Schema, header_name: &syn::Ident, ref_name: &syn::Ident
         }
     }
 
-    // Compile-time assertion: Vec tail element types must be align-1.
-    // Casting packed bytes to *const T is UB if T has alignment > 1.
+    // Compile-time assertion: Vec tail element types must implement ZcElem.
+    // ZcElem guarantees align-1, valid validation, and safe packed-byte access.
     let mut align_assertions = Vec::new();
     for f in &tail_fields {
         if let FieldKind::Tail(TailField::Vec { elem, .. }) = &f.kind {
             let mapped_elem = map_to_pod_type(elem);
             align_assertions.push(quote! {
-                const _: () = assert!(
-                    core::mem::align_of::<#mapped_elem>() == 1,
-                    "compact Vec tail element type must have alignment 1"
-                );
+                const _: fn() = || {
+                    fn assert_zc_elem<T: zeropod::ZcElem>() {}
+                    assert_zc_elem::<#mapped_elem>();
+                };
             });
         }
     }

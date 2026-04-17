@@ -72,6 +72,9 @@ pub fn generate(schema: &Schema) -> TokenStream {
             type Pod = #zc_name;
             const POD_SIZE: usize = core::mem::size_of::<#zc_name>();
         }
+
+        // SAFETY: #zc_name is #[repr(C)] with all align-1 fields, verified by const assert above.
+        unsafe impl zeropod::ZcElem for #zc_name {}
     }
 }
 
@@ -279,6 +282,9 @@ pub fn generate_enum(input: &syn::DeriveInput) -> TokenStream {
                 self.get() == *other
             }
         }
+
+        // SAFETY: #zc_name is #[repr(transparent)] over [u8; #repr_size], alignment is 1.
+        unsafe impl zeropod::ZcElem for #zc_name {}
     }
 }
 

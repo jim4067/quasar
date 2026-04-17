@@ -96,3 +96,10 @@ fn error_invalid_discriminant_variant() {
     let err = Status::validate(&buf);
     assert_eq!(err, Err(zeropod::ZeroPodError::InvalidDiscriminant));
 }
+
+#[test]
+fn enum_zc_is_zc_elem() {
+    fn assert_zc_elem<T: zeropod::ZcElem>() {}
+    assert_zc_elem::<StatusZc>();
+    assert_zc_elem::<LargeEnumZc>();
+}
