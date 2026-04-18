@@ -296,6 +296,34 @@ pub(crate) fn classify_pod_dynamic(ty: &Type) -> Option<PodDynField> {
     classify_pod_string(ty).or_else(|| classify_pod_vec(ty))
 }
 
+/// Classify a borrowed reference type as a compact schema field.
+/// `&str` maps to PodDynField::Str, `&[T]` maps to PodDynField::Vec.
+/// Returns None if the type is not a supported reference type.
+pub(crate) fn classify_borrowed_as_compact(
+    ty: &Type,
+    max_n: usize,
+    pfx_override: usize,
+) -> Option<PodDynField> {
+    if let Type::Reference(ref_ty) = ty {
+        if matches!(&*ref_ty.elem, Type::Path(tp) if tp.path.is_ident("str")) {
+            let pfx = if pfx_override == 0 { 1 } else { pfx_override };
+            return Some(PodDynField::Str {
+                max: max_n,
+                prefix_bytes: pfx,
+            });
+        }
+        if let Type::Slice(s) = &*ref_ty.elem {
+            let pfx = if pfx_override == 0 { 2 } else { pfx_override };
+            return Some(PodDynField::Vec {
+                elem: Box::new((*s.elem).clone()),
+                max: max_n,
+                prefix_bytes: pfx,
+            });
+        }
+    }
+    None
+}
+
 pub(crate) fn prefix_bytes_to_rust_type(prefix_bytes: usize) -> proc_macro2::TokenStream {
     match prefix_bytes {
         1 => quote! { u8 },
@@ -306,13 +334,34 @@ pub(crate) fn prefix_bytes_to_rust_type(prefix_bytes: usize) -> proc_macro2::Tok
     }
 }
 
+/// Map a PodDynField to the zeropod compact field type tokens.
+/// Used by both #[account] and #[instruction] codegen.
+pub(crate) fn pod_dyn_to_compact_type(dyn_field: &PodDynField) -> proc_macro2::TokenStream {
+    match dyn_field {
+        PodDynField::Str { max, prefix_bytes } => {
+            quote! { zeropod::pod::PodString<#max, #prefix_bytes> }
+        }
+        PodDynField::Vec {
+            elem,
+            max,
+            prefix_bytes,
+        } => {
+            quote! { zeropod::pod::PodVec<#elem, #max, #prefix_bytes> }
+        }
+    }
+}
+
 pub(crate) fn map_to_pod_type(ty: &Type) -> proc_macro2::TokenStream {
     pod_alias_type(ty, true)
         .unwrap_or_else(|| quote! { <#ty as quasar_lang::instruction_arg::InstructionArg>::Zc })
 }
 
+pub(crate) fn canonical_instruction_arg_type(ty: &Type) -> proc_macro2::TokenStream {
+    pod_alias_type(ty, false).unwrap_or_else(|| quote! { #ty })
+}
+
 pub(crate) fn zc_assign_from_value(field_name: &Ident, ty: &Type) -> proc_macro2::TokenStream {
-    let canonical = pod_alias_type(ty, false).unwrap_or_else(|| quote! { #ty });
+    let canonical = canonical_instruction_arg_type(ty);
     quote! {
         __zc.#field_name =
             <#canonical as quasar_lang::instruction_arg::InstructionArg>::to_zc(&#field_name);

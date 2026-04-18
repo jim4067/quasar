@@ -1,4 +1,5 @@
 use {
+    super::model::{python_field_path, ProgramModel},
     crate::types::{Idl, IdlType, IdlTypeDef},
     quasar_schema::{camel_to_snake, snake_to_pascal, to_screaming_snake},
     std::fmt::Write,
@@ -9,13 +10,14 @@ use {
 /// Uses `solders` for Solana types (Pubkey, Instruction, AccountMeta)
 /// and `struct` for binary serialization.
 pub fn generate_python_client(idl: &Idl) -> String {
+    let model = ProgramModel::new(idl);
     let mut out = String::new();
 
     // Module docstring
     writeln!(
         out,
         r#""""Generated client for the {} program.""""#,
-        idl.metadata.name
+        model.identity.program_name
     )
     .unwrap();
     out.push_str("from __future__ import annotations\n\n");
@@ -24,24 +26,10 @@ pub fn generate_python_client(idl: &Idl) -> String {
     out.push_str("import struct\n");
     out.push_str("from dataclasses import dataclass\n");
 
-    let has_events = !idl.events.is_empty();
-    let has_args = idl.instructions.iter().any(|ix| !ix.args.is_empty());
-    let has_optional = idl
-        .instructions
-        .iter()
-        .any(|ix| ix.args.iter().any(|a| type_has_option(&a.ty)))
-        || idl
-            .types
-            .iter()
-            .any(|t| t.ty.fields.iter().any(|f| type_has_option(&f.ty)));
-    let has_dynamic = idl
-        .instructions
-        .iter()
-        .any(|ix| ix.args.iter().any(|a| type_has_dynamic(&a.ty)))
-        || idl
-            .types
-            .iter()
-            .any(|t| t.ty.fields.iter().any(|f| type_has_dynamic(&f.ty)));
+    let has_events = model.features.has_events;
+    let has_args = model.features.has_args;
+    let has_optional = model.features.has_option;
+    let has_dynamic = model.features.has_dynamic;
 
     if has_events || has_args || has_dynamic || has_optional {
         out.push_str("from typing import Optional\n");
@@ -207,8 +195,10 @@ pub fn generate_python_client(idl: &Idl) -> String {
         )
         .unwrap();
 
+        out.push_str("    accounts_map = {}\n");
+
         // Build accounts list
-        out.push_str("    accounts = [\n");
+        out.push_str("    accounts = []\n");
         for acc in &ix.accounts {
             let key_expr = if let Some(ref addr) = acc.address {
                 format!("Pubkey.from_string(\"{}\")", addr)
@@ -220,10 +210,10 @@ pub fn generate_python_client(idl: &Idl) -> String {
                             seeds.push(format!("bytes([{}])", super::format_disc_decimal(value)));
                         }
                         crate::types::IdlSeed::Account { path } => {
-                            seeds.push(format!("bytes(input.{})", camel_to_snake(path)));
+                            seeds.push(format!("bytes(accounts_map[\"{}\"])", path));
                         }
                         crate::types::IdlSeed::Arg { path } => {
-                            seeds.push(format!("input.{}", camel_to_snake(path)));
+                            seeds.push(format!("input.{}", python_field_path(path)));
                         }
                     }
                 }
@@ -235,16 +225,17 @@ pub fn generate_python_client(idl: &Idl) -> String {
                 format!("input.{}", camel_to_snake(&acc.name))
             };
 
+            writeln!(out, "    accounts_map[\"{}\"] = {}", acc.name, key_expr).unwrap();
             writeln!(
                 out,
-                "        AccountMeta({}, is_signer={}, is_writable={}),",
-                key_expr,
+                "    accounts.append(AccountMeta(accounts_map[\"{}\"], is_signer={}, \
+                 is_writable={}))",
+                acc.name,
                 py_bool(acc.signer),
                 py_bool(acc.writable),
             )
             .unwrap();
         }
-        out.push_str("    ]\n");
 
         if ix.has_remaining {
             out.push_str(
@@ -253,11 +244,14 @@ pub fn generate_python_client(idl: &Idl) -> String {
             );
         }
 
-        // Build instruction data
+        // Build instruction data — compact wire format:
+        //   [disc][fixed fields][all dynamic prefixes][all dynamic data]
         let const_name = to_screaming_snake(&ix.name);
+        let has_dyn = ix.args.iter().any(|a| is_direct_dynamic(&a.ty));
         if ix.args.is_empty() {
             writeln!(out, "    data = {}_DISCRIMINATOR", const_name).unwrap();
-        } else {
+        } else if !has_dyn {
+            // Fixed-only path: simple inline serialisation.
             writeln!(out, "    data = bytearray({}_DISCRIMINATOR)", const_name).unwrap();
             for arg in &ix.args {
                 out.push_str(&serialize_field_expr(
@@ -266,6 +260,94 @@ pub fn generate_python_client(idl: &Idl) -> String {
                     &idl.types,
                 ));
             }
+            out.push_str("    data = bytes(data)\n");
+        } else {
+            // Compact 3-phase encoding.
+            let fixed_args: Vec<_> = ix
+                .args
+                .iter()
+                .filter(|a| !is_direct_dynamic(&a.ty))
+                .collect();
+            let dyn_args: Vec<_> = ix
+                .args
+                .iter()
+                .filter(|a| is_direct_dynamic(&a.ty))
+                .collect();
+
+            writeln!(out, "    data = bytearray({}_DISCRIMINATOR)", const_name).unwrap();
+
+            // Phase 1: fixed fields
+            for arg in &fixed_args {
+                out.push_str(&serialize_field_expr(
+                    &camel_to_snake(&arg.name),
+                    &arg.ty,
+                    &idl.types,
+                ));
+            }
+
+            // Phase 2: length table — pre-encode dynamic bytes and emit all
+            // length prefixes grouped together.
+            for arg in &dyn_args {
+                let name = camel_to_snake(&arg.name);
+                match &arg.ty {
+                    IdlType::DynString { string } => {
+                        let (fmt, _sz) = prefix_fmt(string.prefix_bytes);
+                        writeln!(
+                            out,
+                            "    _{name}_b = input.{name}.encode(\"utf-8\")",
+                            name = name,
+                        )
+                        .unwrap();
+                        writeln!(
+                            out,
+                            "    data += struct.pack(\"<{fmt}\", len(_{name}_b))",
+                            name = name,
+                            fmt = fmt,
+                        )
+                        .unwrap();
+                    }
+                    IdlType::DynVec { vec } => {
+                        let (fmt, _sz) = prefix_fmt(vec.prefix_bytes);
+                        writeln!(
+                            out,
+                            "    data += struct.pack(\"<{fmt}\", len(input.{name}))",
+                            name = name,
+                            fmt = fmt,
+                        )
+                        .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            // Phase 3: tail data
+            for arg in &dyn_args {
+                let name = camel_to_snake(&arg.name);
+                match &arg.ty {
+                    IdlType::DynString { .. } => {
+                        writeln!(out, "    data += _{name}_b", name = name).unwrap();
+                    }
+                    IdlType::DynVec { vec } => {
+                        let item_ser = match &*vec.items {
+                            IdlType::Primitive(p) if p == "pubkey" => "bytes(item)".to_string(),
+                            IdlType::Primitive(p) => {
+                                let f = struct_format(p);
+                                format!("struct.pack(\"<{}\", item)", f)
+                            }
+                            _ => "item".to_string(),
+                        };
+                        writeln!(
+                            out,
+                            "    for item in input.{name}:\n        data += {ser}",
+                            name = name,
+                            ser = item_ser,
+                        )
+                        .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
             out.push_str("    data = bytes(data)\n");
         }
 
@@ -312,7 +394,7 @@ pub fn generate_python_client(idl: &Idl) -> String {
     }
 
     // Client class (convenience wrapper)
-    let pascal_name = snake_to_pascal(&idl.metadata.name);
+    let pascal_name = snake_to_pascal(&model.identity.program_name);
     writeln!(out, "\nclass {}Client:", pascal_name).unwrap();
     writeln!(out, "    program_id = PROGRAM_ID\n").unwrap();
 
@@ -370,6 +452,12 @@ fn python_type(ty: &IdlType) -> String {
 // ---------------------------------------------------------------------------
 // Serialization helpers
 // ---------------------------------------------------------------------------
+
+/// Returns `true` if the type is a top-level dynamic type (`DynString` or
+/// `DynVec`). These require compact 3-phase encoding at the instruction level.
+fn is_direct_dynamic(ty: &IdlType) -> bool {
+    matches!(ty, IdlType::DynString { .. } | IdlType::DynVec { .. })
+}
 
 fn serialize_field_expr(name: &str, ty: &IdlType, types: &[IdlTypeDef]) -> String {
     match ty {
@@ -604,7 +692,8 @@ fn prefix_fmt(prefix_bytes: usize) -> (&'static str, usize) {
     match prefix_bytes {
         1 => ("B", 1),
         2 => ("H", 2),
-        _ => ("I", 4),
+        4 => ("I", 4),
+        _ => ("Q", 8),
     }
 }
 
@@ -634,22 +723,6 @@ fn primitive_size(p: &str) -> usize {
         "u128" | "i128" => 16,
         "pubkey" => 32,
         _ => 0,
-    }
-}
-
-fn type_has_dynamic(ty: &IdlType) -> bool {
-    match ty {
-        IdlType::Option { option } => type_has_dynamic(option),
-        IdlType::DynString { .. } | IdlType::DynVec { .. } => true,
-        _ => false,
-    }
-}
-
-fn type_has_option(ty: &IdlType) -> bool {
-    match ty {
-        IdlType::Option { .. } => true,
-        IdlType::DynVec { vec } => type_has_option(&vec.items),
-        _ => false,
     }
 }
 

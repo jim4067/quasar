@@ -5,8 +5,8 @@
 //!
 //! | Type | Wire format |
 //! |------|-------------|
-//! | [`DynBytes<P>`] | `P` LE length prefix + raw bytes (`P` defaults to `u32`) |
-//! | [`DynVec<T, P>`] | `P` LE count prefix + each item serialized |
+//! | `DynBytes<P>` | `P` LE length prefix + raw bytes (`P` defaults to `u32`) |
+//! | `DynVec<T, P>` | `P` LE count prefix + each item serialized |
 //!
 //! The prefix type `P` (u8, u16, or u32) must match the on-chain declaration.
 //! For example, `String<u8, 100>` on-chain requires `DynBytes<u8>` off-chain.
@@ -74,6 +74,21 @@ pub struct DynBytes<P = u32>(pub Vec<u8>, PhantomData<P>);
 impl<P> DynBytes<P> {
     pub fn new(data: Vec<u8>) -> Self {
         Self(data, PhantomData)
+    }
+
+    /// Number of bytes in the payload (excludes the prefix).
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` if the payload is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The raw byte payload.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -149,6 +164,21 @@ impl<P> DynString<P> {
     pub fn new(s: &str) -> Self {
         Self(DynBytes::new(s.as_bytes().to_vec()))
     }
+
+    /// Number of UTF-8 bytes in the string (excludes the prefix).
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` if the string is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The raw UTF-8 bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
 }
 
 impl<P> From<&str> for DynString<P> {
@@ -213,6 +243,21 @@ pub struct DynVec<T, P = u32>(pub Vec<T>, PhantomData<P>);
 impl<T, P> DynVec<T, P> {
     pub fn new(data: Vec<T>) -> Self {
         Self(data, PhantomData)
+    }
+
+    /// Number of elements (excludes the prefix).
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` if the vector is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Iterate over the elements.
+    pub fn iter(&self) -> core::slice::Iter<'_, T> {
+        self.0.iter()
     }
 }
 
@@ -312,46 +357,5 @@ impl SerializeArg for Vec<u8> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// OptionZc<Z> — fixed-size Option serialization matching on-chain ZC layout
-// ---------------------------------------------------------------------------
-
-use crate::instruction_arg::OptionZc;
-
-unsafe impl<Z, C: ConfigCore> SchemaWrite<C> for OptionZc<Z>
-where
-    Z: Copy,
-{
-    type Src = Self;
-
-    fn size_of(_src: &Self) -> WriteResult<usize> {
-        Ok(core::mem::size_of::<Self>())
-    }
-
-    fn write(mut writer: impl Writer, src: &Self) -> WriteResult<()> {
-        let bytes = unsafe {
-            core::slice::from_raw_parts(
-                src as *const Self as *const u8,
-                core::mem::size_of::<Self>(),
-            )
-        };
-        writer.write(bytes)?;
-        Ok(())
-    }
-}
-
-unsafe impl<'de, Z, C: ConfigCore> SchemaRead<'de, C> for OptionZc<Z>
-where
-    Z: Copy,
-{
-    type Dst = Self;
-
-    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self>) -> ReadResult<()> {
-        let bytes = reader.take_scoped(core::mem::size_of::<Self>())?;
-        // SAFETY: OptionZc<Z> is #[repr(C)] with alignment 1 (tag: u8 +
-        // MaybeUninit<Z>). The bytes from the reader are fully initialized.
-        let zc = unsafe { core::ptr::read_unaligned(bytes.as_ptr() as *const Self) };
-        dst.write(zc);
-        Ok(())
-    }
-}
+// OptionZc<Z> is now a type alias for PodOption<Z>, which already has
+// SchemaWrite/SchemaRead impls in zeropod's wincode module.

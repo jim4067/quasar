@@ -1,10 +1,11 @@
-//! Trait for types that can be used as fixed-size instruction arguments.
+//! Traits for instruction arguments.
 //!
-//! Each type provides an alignment-1 zero-copy companion (`Zc`) and a
-//! conversion function (`from_zc`) used by `#[instruction]` codegen.
-//! Primitive integers map to their Pod equivalents (e.g. `u64` → `PodU64`),
-//! while custom structs derive their companion via
-//! `#[derive(QuasarSerialize)]`.
+//! Zeropod owns all storage layout and validation. Quasar provides the
+//! native↔pod conversion bridge so framework types participate in
+//! instruction decoding.
+//!
+//! - Fixed args: `InstructionArg` / `InstructionValue` (zero-copy pointer cast)
+//! - Dynamic args: zeropod compact `Ref` views (zero-copy borrowed access)
 
 use crate::pod::*;
 
@@ -32,185 +33,174 @@ pub trait InstructionArg: Sized {
     }
 }
 
+/// Native↔pod conversion bridge for fixed instruction values.
+pub trait InstructionValue: Sized {
+    type Pod: Copy + zeropod::ZcValidate;
+
+    fn from_pod(pod: &Self::Pod) -> Self;
+    fn to_pod(&self) -> Self::Pod;
+}
+
+impl<T> InstructionArg for T
+where
+    T: InstructionValue,
+{
+    type Zc = <T as InstructionValue>::Pod;
+
+    #[inline(always)]
+    fn from_zc(zc: &Self::Zc) -> Self {
+        T::from_pod(zc)
+    }
+
+    #[inline(always)]
+    fn to_zc(&self) -> Self::Zc {
+        T::to_pod(self)
+    }
+
+    #[inline(always)]
+    fn validate_zc(zc: &Self::Zc) -> Result<(), crate::prelude::ProgramError> {
+        <Self::Zc as zeropod::ZcValidate>::validate_ref(zc)
+            .map_err(|_| crate::prelude::ProgramError::InvalidInstructionData)
+    }
+}
+
+/// Bridge trait for instruction-arg types that can also appear as zeropod
+/// schema fields.
+pub trait InstructionArgField:
+    InstructionArg + zeropod::ZcField<Pod = <Self as InstructionArg>::Zc>
+{
+}
+
+impl<T> InstructionArgField for T where
+    T: InstructionArg + zeropod::ZcField<Pod = <T as InstructionArg>::Zc>
+{
+}
+
 // --- Identity impls (already alignment 1) ---
 
-impl InstructionArg for u8 {
-    type Zc = u8;
-    #[inline(always)]
-    fn from_zc(zc: &u8) -> u8 {
-        *zc
-    }
-    #[inline(always)]
-    fn to_zc(&self) -> u8 {
-        *self
-    }
+macro_rules! impl_instruction_value_identity {
+    ($native:ty, $pod:ty) => {
+        impl InstructionValue for $native {
+            type Pod = $pod;
+
+            #[inline(always)]
+            fn from_pod(pod: &Self::Pod) -> $native {
+                *pod
+            }
+            #[inline(always)]
+            fn to_pod(&self) -> Self::Pod {
+                *self
+            }
+        }
+    };
 }
 
-impl InstructionArg for i8 {
-    type Zc = i8;
-    #[inline(always)]
-    fn from_zc(zc: &i8) -> i8 {
-        *zc
-    }
-    #[inline(always)]
-    fn to_zc(&self) -> i8 {
-        *self
-    }
-}
+impl_instruction_value_identity!(u8, u8);
+impl_instruction_value_identity!(i8, i8);
+impl_instruction_value_identity!(solana_address::Address, solana_address::Address);
 
-impl<const N: usize> InstructionArg for [u8; N] {
-    type Zc = [u8; N];
-    #[inline(always)]
-    fn from_zc(zc: &[u8; N]) -> [u8; N] {
-        *zc
-    }
-    #[inline(always)]
-    fn to_zc(&self) -> [u8; N] {
-        *self
-    }
-}
+impl<const N: usize> InstructionValue for [u8; N] {
+    type Pod = [u8; N];
 
-impl InstructionArg for solana_address::Address {
-    type Zc = solana_address::Address;
     #[inline(always)]
-    fn from_zc(zc: &solana_address::Address) -> solana_address::Address {
-        *zc
+    fn from_pod(pod: &Self::Pod) -> Self {
+        *pod
     }
+
     #[inline(always)]
-    fn to_zc(&self) -> solana_address::Address {
+    fn to_pod(&self) -> Self::Pod {
         *self
     }
 }
 
 // --- Pod-mapped impls (native → Pod companion) ---
 
-macro_rules! impl_instruction_arg_pod {
+macro_rules! impl_instruction_value_pod {
     ($native:ty, $pod:ty) => {
-        impl InstructionArg for $native {
-            type Zc = $pod;
+        impl InstructionValue for $native {
+            type Pod = $pod;
+
             #[inline(always)]
-            fn from_zc(zc: &$pod) -> $native {
-                zc.get()
+            fn from_pod(pod: &Self::Pod) -> $native {
+                pod.get()
             }
             #[inline(always)]
-            fn to_zc(&self) -> $pod {
+            fn to_pod(&self) -> Self::Pod {
                 <$pod>::from(*self)
             }
         }
     };
 }
 
-impl_instruction_arg_pod!(u16, PodU16);
-impl_instruction_arg_pod!(u32, PodU32);
-impl_instruction_arg_pod!(u64, PodU64);
-impl_instruction_arg_pod!(u128, PodU128);
-impl_instruction_arg_pod!(i16, PodI16);
-impl_instruction_arg_pod!(i32, PodI32);
-impl_instruction_arg_pod!(i64, PodI64);
-impl_instruction_arg_pod!(i128, PodI128);
+impl_instruction_value_pod!(u16, PodU16);
+impl_instruction_value_pod!(u32, PodU32);
+impl_instruction_value_pod!(u64, PodU64);
+impl_instruction_value_pod!(u128, PodU128);
+impl_instruction_value_pod!(i16, PodI16);
+impl_instruction_value_pod!(i32, PodI32);
+impl_instruction_value_pod!(i64, PodI64);
+impl_instruction_value_pod!(i128, PodI128);
 
-impl InstructionArg for bool {
-    type Zc = PodBool;
+impl InstructionValue for bool {
+    type Pod = PodBool;
+
     #[inline(always)]
-    fn from_zc(zc: &PodBool) -> bool {
-        zc.get()
+    fn from_pod(pod: &Self::Pod) -> bool {
+        pod.get()
     }
+
     #[inline(always)]
-    fn to_zc(&self) -> PodBool {
+    fn to_pod(&self) -> Self::Pod {
         PodBool::from(*self)
     }
 }
 
 // --- Pod types map to themselves ---
 
-macro_rules! impl_instruction_arg_identity {
+macro_rules! impl_instruction_value_pod_identity {
     ($($t:ty),*) => {$(
-        impl InstructionArg for $t {
-            type Zc = $t;
+        impl InstructionValue for $t {
+            type Pod = $t;
+
             #[inline(always)]
-            fn from_zc(zc: &$t) -> $t { *zc }
+            fn from_pod(pod: &Self::Pod) -> Self { *pod }
             #[inline(always)]
-            fn to_zc(&self) -> $t { *self }
+            fn to_pod(&self) -> Self::Pod { *self }
         }
     )*}
 }
 
-impl_instruction_arg_identity!(
+impl_instruction_value_pod_identity!(
     PodU16, PodU32, PodU64, PodU128, PodI16, PodI32, PodI64, PodI128, PodBool
 );
 
 // --- PodString / PodVec: identity InstructionArg (Zc = Self) ---
 
-impl<const N: usize, const PFX: usize> InstructionArg for crate::pod::PodString<N, PFX> {
-    type Zc = Self;
+impl<const N: usize, const PFX: usize> InstructionValue for crate::pod::PodString<N, PFX> {
+    type Pod = Self;
+
     #[inline(always)]
-    fn from_zc(zc: &Self) -> Self {
-        *zc
+    fn from_pod(pod: &Self::Pod) -> Self {
+        *pod
     }
     #[inline(always)]
-    fn to_zc(&self) -> Self {
+    fn to_pod(&self) -> Self::Pod {
         *self
     }
-    #[inline(always)]
-    fn validate_zc(zc: &Self) -> Result<(), crate::prelude::ProgramError> {
-        if zc.decode_len() > N {
-            return Err(crate::prelude::ProgramError::InvalidInstructionData);
-        }
-        Ok(())
-    }
 }
 
-impl<T: Copy, const N: usize, const PFX: usize> InstructionArg for crate::pod::PodVec<T, N, PFX> {
-    type Zc = Self;
+impl<T: zeropod::ZcElem, const N: usize, const PFX: usize> InstructionValue
+    for crate::pod::PodVec<T, N, PFX>
+{
+    type Pod = Self;
+
     #[inline(always)]
-    fn from_zc(zc: &Self) -> Self {
-        *zc
+    fn from_pod(pod: &Self::Pod) -> Self {
+        *pod
     }
     #[inline(always)]
-    fn to_zc(&self) -> Self {
+    fn to_pod(&self) -> Self::Pod {
         *self
-    }
-    #[inline(always)]
-    fn validate_zc(zc: &Self) -> Result<(), crate::prelude::ProgramError> {
-        if zc.decode_len() > N {
-            return Err(crate::prelude::ProgramError::InvalidInstructionData);
-        }
-        Ok(())
-    }
-}
-
-// --- InstructionArgDecode<'a>: unified decode for fixed and borrowed args ---
-
-/// Unified decode trait for instruction arguments.
-///
-/// Fixed types (`T: InstructionArg`) get a blanket impl that uses the ZC
-/// pointer-cast path. Borrowed structs with `&'a str` / `&'a [T]` fields get an
-/// explicit impl generated by `#[derive(QuasarSerialize)]`.
-///
-/// The `Output` associated type decouples the decoded form from the static
-/// type: fixed types decode to `Self`, borrowed structs decode to `Self<'a>`.
-pub trait InstructionArgDecode<'a>: Sized {
-    type Output: 'a;
-    fn decode(
-        data: &'a [u8],
-        offset: usize,
-    ) -> Result<(Self::Output, usize), crate::prelude::ProgramError>;
-}
-
-/// Blanket impl: all fixed-size `InstructionArg` types decode via ZC
-/// pointer-cast.
-impl<'a, T: InstructionArg + 'a> InstructionArgDecode<'a> for T {
-    type Output = T;
-    #[inline(always)]
-    fn decode(data: &'a [u8], offset: usize) -> Result<(T, usize), crate::prelude::ProgramError> {
-        let size = core::mem::size_of::<T::Zc>();
-        if data.len() < offset + size {
-            return Err(crate::prelude::ProgramError::InvalidInstructionData);
-        }
-        // SAFETY: bounds-checked above; T::Zc is repr(C) alignment-1.
-        let zc = unsafe { &*(data.as_ptr().add(offset) as *const T::Zc) };
-        T::validate_zc(zc)?;
-        Ok((T::from_zc(zc), offset + size))
     }
 }
 
@@ -218,15 +208,10 @@ impl<'a, T: InstructionArg + 'a> InstructionArgDecode<'a> for T {
 
 /// Zero-copy companion for `Option<T>`.
 ///
-/// Tag byte (0 = None, 1 = Some) followed by the inner ZC value.
-/// For None, payload bytes are zeroed but wrapped in `MaybeUninit`
-/// to avoid soundness issues with types that have validity constraints.
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct OptionZc<Z: Copy> {
-    pub tag: u8,
-    pub value: core::mem::MaybeUninit<Z>,
-}
+/// Type alias — `OptionZc` is now backed by `PodOption` from zeropod.
+/// Kept as an alias so existing code that references `OptionZc` keeps
+/// compiling.
+pub type OptionZc<Z> = crate::pod::PodOption<Z>;
 
 // Compile-time alignment and size checks.
 const _: () = assert!(core::mem::align_of::<OptionZc<[u8; 1]>>() == 1);
@@ -237,13 +222,13 @@ impl<T: InstructionArg> InstructionArg for Option<T> {
 
     #[inline(always)]
     fn from_zc(zc: &Self::Zc) -> Self {
-        if zc.tag == 0 {
+        if zc.raw_tag() == 0 {
             None
         } else {
             // SAFETY: tag was validated as 0 or 1 by validate_zc() (called by
             // codegen before from_zc). Tag == 1 means value was written by
             // to_zc() or populated by the SVM instruction data buffer.
-            Some(T::from_zc(unsafe { zc.value.assume_init_ref() }))
+            Some(T::from_zc(unsafe { zc.assume_init_ref() }))
         }
     }
 
@@ -251,13 +236,14 @@ impl<T: InstructionArg> InstructionArg for Option<T> {
     /// into `T::validate_zc` when the value is present.
     #[inline(always)]
     fn validate_zc(zc: &Self::Zc) -> Result<(), crate::prelude::ProgramError> {
-        if zc.tag > 1 {
+        let tag = zc.raw_tag();
+        if tag > 1 {
             return Err(crate::prelude::ProgramError::InvalidInstructionData);
         }
-        if zc.tag == 1 {
+        if tag == 1 {
             // SAFETY: tag == 1 means the value was written by to_zc() or
             // populated by the SVM instruction data buffer.
-            T::validate_zc(unsafe { zc.value.assume_init_ref() })?;
+            T::validate_zc(unsafe { zc.assume_init_ref() })?;
         }
         Ok(())
     }
@@ -265,16 +251,8 @@ impl<T: InstructionArg> InstructionArg for Option<T> {
     #[inline(always)]
     fn to_zc(&self) -> Self::Zc {
         match self {
-            None => OptionZc {
-                tag: 0,
-                // MaybeUninit::zeroed() -- payload is never read when tag == 0.
-                // Zeroed for determinism in serialized instruction data.
-                value: core::mem::MaybeUninit::zeroed(),
-            },
-            Some(v) => OptionZc {
-                tag: 1,
-                value: core::mem::MaybeUninit::new(v.to_zc()),
-            },
+            None => OptionZc::none(),
+            Some(v) => OptionZc::some(v.to_zc()),
         }
     }
 }
@@ -287,7 +265,7 @@ mod tests {
     fn option_u64_some_round_trip() {
         let val: Option<u64> = Some(42);
         let zc = val.to_zc();
-        assert_eq!(zc.tag, 1);
+        assert_eq!(zc.raw_tag(), 1);
         let decoded = Option::<u64>::from_zc(&zc);
         assert_eq!(decoded, Some(42));
     }
@@ -296,7 +274,7 @@ mod tests {
     fn option_u64_none_round_trip() {
         let val: Option<u64> = None;
         let zc = val.to_zc();
-        assert_eq!(zc.tag, 0);
+        assert_eq!(zc.raw_tag(), 0);
         let decoded = Option::<u64>::from_zc(&zc);
         assert_eq!(decoded, None);
     }
@@ -306,7 +284,7 @@ mod tests {
         let addr = solana_address::Address::from([42u8; 32]);
         let val: Option<solana_address::Address> = Some(addr);
         let zc = val.to_zc();
-        assert_eq!(zc.tag, 1);
+        assert_eq!(zc.raw_tag(), 1);
         let decoded = Option::<solana_address::Address>::from_zc(&zc);
         assert_eq!(decoded, Some(addr));
     }
@@ -315,7 +293,7 @@ mod tests {
     fn option_address_none_round_trip() {
         let val: Option<solana_address::Address> = None;
         let zc = val.to_zc();
-        assert_eq!(zc.tag, 0);
+        assert_eq!(zc.raw_tag(), 0);
         let decoded = Option::<solana_address::Address>::from_zc(&zc);
         assert_eq!(decoded, None);
     }
@@ -341,21 +319,26 @@ mod tests {
         );
     }
 
+    /// Build an `OptionZc` with an arbitrary tag byte for testing invalid
+    /// states.
+    fn option_zc_with_tag<Z: Copy>(tag: u8, inner: Z) -> OptionZc<Z> {
+        let mut zc = OptionZc::some(inner);
+        // SAFETY: PodOption is #[repr(C)] starting with tag: u8
+        unsafe {
+            *((&mut zc) as *mut OptionZc<Z> as *mut u8) = tag;
+        }
+        zc
+    }
+
     #[test]
     fn option_tag_invalid_rejected() {
-        let zc = OptionZc {
-            tag: 2,
-            value: core::mem::MaybeUninit::new(crate::pod::PodU64::from(42)),
-        };
+        let zc = option_zc_with_tag(2, crate::pod::PodU64::from(42));
         assert!(Option::<u64>::validate_zc(&zc).is_err());
     }
 
     #[test]
     fn option_tag_0xff_rejected() {
-        let zc = OptionZc {
-            tag: 0xFF,
-            value: core::mem::MaybeUninit::new(crate::pod::PodU64::from(42)),
-        };
+        let zc = option_zc_with_tag(0xFF, crate::pod::PodU64::from(42));
         assert!(Option::<u64>::validate_zc(&zc).is_err());
     }
 
@@ -371,9 +354,10 @@ mod tests {
     #[test]
     fn option_none_payload_is_zeroed() {
         let zc = None::<u64>.to_zc();
+        // Skip the first byte (tag), the rest is the payload.
         let bytes = unsafe {
             core::slice::from_raw_parts(
-                &zc.value as *const _ as *const u8,
+                (&zc as *const _ as *const u8).add(1),
                 core::mem::size_of::<crate::pod::PodU64>(),
             )
         };
@@ -407,10 +391,7 @@ mod tests {
     #[test]
     fn option_nested_validate_outer_invalid() {
         // Outer tag invalid, inner valid
-        let zc = OptionZc {
-            tag: 3,
-            value: core::mem::MaybeUninit::new(Some(42u64).to_zc()),
-        };
+        let zc = option_zc_with_tag(3, Some(42u64).to_zc());
         assert!(Option::<Option<u64>>::validate_zc(&zc).is_err());
     }
 
@@ -438,10 +419,7 @@ mod tests {
     fn option_validate_all_boundary_tags() {
         // Tag 0 and 1 are valid
         for tag in 0..=1u8 {
-            let zc = OptionZc {
-                tag,
-                value: core::mem::MaybeUninit::new(crate::pod::PodU64::from(0)),
-            };
+            let zc = option_zc_with_tag(tag, crate::pod::PodU64::from(0));
             assert!(
                 Option::<u64>::validate_zc(&zc).is_ok(),
                 "tag={tag} should be valid"
@@ -449,10 +427,7 @@ mod tests {
         }
         // Tags 2..=255 are invalid
         for tag in 2..=255u8 {
-            let zc = OptionZc {
-                tag,
-                value: core::mem::MaybeUninit::new(crate::pod::PodU64::from(0)),
-            };
+            let zc = option_zc_with_tag(tag, crate::pod::PodU64::from(0));
             assert!(
                 Option::<u64>::validate_zc(&zc).is_err(),
                 "tag={tag} should be invalid"
@@ -474,10 +449,11 @@ mod kani_proofs {
     #[kani::proof]
     fn option_validate_zc_tag_boundary() {
         let tag: u8 = kani::any();
-        let zc = OptionZc {
-            tag,
-            value: core::mem::MaybeUninit::new(PodU64::from(0u64)),
-        };
+        let mut zc = OptionZc::some(PodU64::from(0u64));
+        // SAFETY: PodOption is #[repr(C)] starting with tag: u8
+        unsafe {
+            *((&mut zc) as *mut OptionZc<PodU64> as *mut u8) = tag;
+        }
         let result = Option::<u64>::validate_zc(&zc);
         assert!(result.is_ok() == (tag <= 1));
     }

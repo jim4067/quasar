@@ -15,7 +15,7 @@ pub use {
         },
         dispatch, emit,
         error::QuasarError,
-        instruction_arg::{InstructionArg, InstructionArgDecode, OptionZc},
+        instruction_arg::{InstructionArg, OptionZc},
         no_alloc, panic_handler,
         pod::{
             PodBool, PodI128, PodI16, PodI32, PodI64, PodString, PodU128, PodU16, PodU32, PodU64,
@@ -28,6 +28,7 @@ pub use {
             AccountCheck, AccountCount, AsAccountView, CheckOwner, Discriminator, Event, HasSeeds,
             Id, Owner, Owners, ParseAccounts, ProgramInterface, Space, StaticView, ZeroCopyDeref,
         },
+        String, Vec, ZcElem, ZcField, ZcValidate, ZeroPodError,
     },
     core::ops::{Deref, DerefMut},
     quasar_derive::{

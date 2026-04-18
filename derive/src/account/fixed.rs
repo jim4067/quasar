@@ -24,23 +24,16 @@ pub(super) fn generate_account(
     let zc = super::layout::build_zc_spec(name, field_infos, has_dynamic);
     let bump_offset_impl =
         super::layout::emit_bump_offset_impl(field_infos, has_dynamic, disc_len, &zc.zc_path);
-    let dynamic = super::dynamic::build_dynamic_pieces(field_infos, disc_len, &zc.zc_path);
+    let dynamic = super::dynamic::build_dynamic_pieces(field_infos, disc_len, &zc.zc_mod);
 
-    let zc_definition =
-        super::layout::emit_zc_definition(name, has_dynamic, &zc, &dynamic.align_asserts);
+    let zc_definition = super::layout::emit_zc_definition(name, has_dynamic, &zc);
     let account_wrapper =
         super::layout::emit_account_wrapper(attrs, vis, name, disc_len, &zc.zc_path);
     let discriminator_impl =
         super::traits::emit_discriminator_impl(name, disc_bytes, &bump_offset_impl);
     let owner_impl = super::traits::emit_owner_impl(name);
-    let space_impl = super::traits::emit_space_impl(
-        name,
-        field_infos,
-        has_dynamic,
-        disc_len,
-        &zc.zc_path,
-        dynamic.prefix_total,
-    );
+    let space_impl =
+        super::traits::emit_space_impl(name, field_infos, has_dynamic, disc_len, &zc.zc_mod);
     let account_check_impl =
         super::traits::emit_account_check_impl(super::traits::AccountCheckSpec {
             name,
@@ -49,20 +42,33 @@ pub(super) fn generate_account(
             disc_indices,
             disc_bytes,
             zc_path: &zc.zc_path,
-            prefix_total: dynamic.prefix_total,
-            validation_stmts: &dynamic.validation_stmts,
+            zc_mod: &zc.zc_mod,
         });
     let dynamic_impl_block =
-        super::dynamic::emit_dynamic_impl_block(name, has_dynamic, disc_len, &zc.zc_path, &dynamic);
-    let dyn_guard =
-        super::dynamic::emit_dyn_guard(name, has_dynamic, disc_len, &zc.zc_name, &dynamic);
+        super::dynamic::emit_dynamic_impl_block(name, has_dynamic, disc_len, &zc.zc_mod, &dynamic);
+    let compact_mut = super::dynamic::emit_compact_mut(
+        name,
+        has_dynamic,
+        disc_len,
+        &zc.zc_mod,
+        &zc.zc_path,
+        &dynamic,
+    );
+    let dyn_writer = super::dynamic::emit_dyn_writer(
+        name,
+        has_dynamic,
+        disc_len,
+        &zc.zc_mod,
+        &zc.zc_path,
+        &dynamic,
+    );
     let set_inner_impl = super::methods::emit_set_inner_impl(super::methods::SetInnerSpec {
         name,
         vis,
         field_infos,
         has_dynamic,
         disc_len,
-        zc_name: &zc.zc_name,
+        zc_mod: &zc.zc_mod,
         zc_path: &zc.zc_path,
         gen_set_inner,
     });
@@ -82,7 +88,9 @@ pub(super) fn generate_account(
 
         #dynamic_impl_block
 
-        #dyn_guard
+        #compact_mut
+
+        #dyn_writer
 
         #set_inner_impl
     }
