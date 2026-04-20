@@ -2181,7 +2181,6 @@ version = "0.0.0"
 dependencies = [
  "const-crypto",
  "quasar-derive",
- "quasar-pod",
  "solana-account-view 2.0.0",
  "solana-address 2.2.0",
  "solana-define-syscall 5.0.0",
@@ -2191,6 +2190,7 @@ dependencies = [
  "solana-program-log",
  "trybuild",
  "wincode 0.4.9",
+ "zeropod",
 ]
 
 [[package]]
@@ -2220,13 +2220,6 @@ dependencies = [
  "quasar-lang",
  "solana-address 2.2.0",
  "solana-instruction",
- "wincode 0.4.9",
-]
-
-[[package]]
-name = "quasar-pod"
-version = "0.0.0"
-dependencies = [
  "wincode 0.4.9",
 ]
 
@@ -4672,6 +4665,29 @@ name = "zeroize_derive"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85a5b4158499876c763cb03bc4e49185d3cccbabb15b33c627f7884f43db852e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "zeropod"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a3bf073396a7d0821f071de24c92627e38f6c2805373cc0afa85e9e5358c274"
+dependencies = [
+ "solana-address 2.2.0",
+ "solana-program-error",
+ "wincode 0.4.9",
+ "zeropod-derive",
+]
+
+[[package]]
+name = "zeropod-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "637cf615077fd256810487d431215048927bf253a7bb945b04a653820a93b14d"
 dependencies = [
  "proc-macro2",
  "quote",

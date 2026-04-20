@@ -1,7 +1,4 @@
-use {
-    crate::state::DynamicAccount,
-    quasar_lang::{prelude::*, sysvars::Sysvar as _},
-};
+use {crate::state::DynamicAccount, quasar_lang::prelude::*};
 
 #[derive(Accounts)]
 pub struct DynamicViewMut {
@@ -15,15 +12,15 @@ pub struct DynamicViewMut {
 impl DynamicViewMut {
     #[inline(always)]
     pub fn handler(&mut self, new_name: &str, new_tags: &[Address]) -> Result<(), ProgramError> {
-        let rent = Rent::get()?;
-        let mut view = self.account.as_dynamic_writer(
-            self.payer.to_account_view(),
-            rent.lamports_per_byte(),
-            rent.exemption_threshold_raw(),
-        );
-        view.set_name(new_name)?;
-        view.set_tags(new_tags)?;
-        view.commit()?;
+        {
+            let mut guard = self.account.as_mut(self.payer.to_account_view());
+            if !guard.name.set(new_name) {
+                return Err(ProgramError::InvalidInstructionData);
+            }
+            if !guard.tags.set_from_slice(new_tags) {
+                return Err(ProgramError::InvalidInstructionData);
+            }
+        }
 
         if self.account.name() != new_name {
             return Err(ProgramError::Custom(13));

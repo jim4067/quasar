@@ -20,7 +20,7 @@ SBF_ALL := $(SBF_EXAMPLES) $(SBF_TEST_PROGRAMS)
 .PHONY: format format-fix clippy clippy-fix check-features check-workspace-lints \
 	check-runtime-panics check-workspace-invariants build build-sbf test bench-cu \
 	bench-tracked compare-tracked test-miri test-miri-strict test-all nightly-version \
-	kani help-kani check-kani kani-pod kani-lang kani-spl
+	kani help-kani check-kani kani-lang kani-spl
 
 # Print the nightly toolchain version for CI
 nightly-version:
@@ -33,7 +33,7 @@ help-kani:
 	@echo "Expected local version: kani $(KANI_VERSION)"
 	@echo "Check version:         kani --version"
 	@echo "Run all proofs:        make kani"
-	@echo "Run one crate:         make kani-pod | make kani-lang | make kani-spl"
+	@echo "Run one crate:         make kani-lang | make kani-spl"
 
 check-kani:
 	@command -v kani >/dev/null 2>&1 || { \
@@ -155,7 +155,7 @@ build-sbf:
 test:
 	@$(MAKE) build
 	@$(MAKE) build-sbf
-	@cargo test -p quasar-lang -p quasar-derive -p quasar-spl -p quasar-pod \
+	@cargo test -p quasar-lang -p quasar-derive -p quasar-spl \
 		-p quasar-vault -p quasar-escrow -p quasar-multisig \
 		-p quasar-test-suite \
 		--all-features
@@ -186,16 +186,13 @@ test-miri-strict:
 	@MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-symbolic-alignment-check -Zmiri-strict-provenance" \
 		cargo +$(NIGHTLY_TOOLCHAIN) miri test -p quasar-spl --test miri
 
-kani-pod: check-kani
-	@cargo kani -p quasar-pod
-
 kani-lang: check-kani
 	@cargo kani -p quasar-lang
 
 kani-spl: check-kani
 	@cargo kani -p quasar-spl
 
-kani: kani-pod kani-lang kani-spl
+kani: kani-lang kani-spl
 
 # Run all checks in sequence
 test-all:

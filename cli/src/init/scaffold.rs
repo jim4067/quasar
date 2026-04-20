@@ -268,9 +268,9 @@ quasar-lang = {quasar_lang_dep}
                 r#"
 [dev-dependencies]
 mollusk-svm = "0.10.3"
-solana-account = {{ version = "3.4.0" }}
-solana-address = {{ version = "2.2.0", features = ["decode"] }}
-solana-instruction = {{ version = "3.2.0", features = ["bincode"] }}
+solana-account = { version = "3.4.0" }
+solana-address = { version = "2.2.0", features = ["decode"] }
+solana-instruction = { version = "3.2.0", features = ["bincode"] }
 "#,
             );
         }
@@ -278,11 +278,11 @@ solana-instruction = {{ version = "3.2.0", features = ["bincode"] }}
             out.push_str(
                 r#"
 [dev-dependencies]
-quasar-svm = {{ version = "0.1" }}
-solana-account = {{ version = "3.4.0" }}
-solana-address = {{ version = "2.2.0", features = ["decode"] }}
-solana-instruction = {{ version = "3.2.0", features = ["bincode"] }}
-solana-pubkey = {{ version = "4.1.0" }}
+quasar-svm = { version = "0.1" }
+solana-account = { version = "3.4.0" }
+solana-address = { version = "2.2.0", features = ["decode"] }
+solana-instruction = { version = "3.2.0", features = ["bincode"] }
+solana-pubkey = { version = "4.1.0" }
 "#,
             );
         }
@@ -556,7 +556,7 @@ use solana_address::Address;
 use solana_instruction::{{AccountMeta, Instruction}};
 
 fn setup() -> QuasarSvm {{
-    let elf = std::fs::read("../target/deploy/{libname}.so").unwrap();
+    let elf = std::fs::read("target/deploy/{libname}.so").unwrap();
     QuasarSvm::new()
         .with_program(&Pubkey::from(crate::ID), &elf)
 }}

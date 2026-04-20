@@ -12,7 +12,7 @@
 //! | [`accounts`] | Zero-copy account wrapper types (`Account`, `Signer`, `UncheckedAccount`) |
 //! | [`checks`] | Compile-time account validation traits |
 //! | [`cpi`] | Const-generic cross-program invocation builder |
-//! | [`pod`] | Alignment-1 integer types (re-exported from `quasar-pod`) |
+//! | [`pod`] | Alignment-1 integer types (re-exported from `zeropod`) |
 //! | [`traits`] | Core framework traits (`Owner`, `Discriminator`, `Space`, etc.) |
 //! | [`prelude`] | Convenience re-exports for program code |
 //!
@@ -267,13 +267,11 @@ pub mod event;
 /// Trait for fixed-size instruction argument types with alignment-1 ZC
 /// companions.
 pub mod instruction_arg;
-/// Instruction data deserialization for dynamic fields (strings and vecs).
-pub mod instruction_data;
 /// Low-level `sol_log_data` syscall wrapper.
 pub mod log;
 /// Program Derived Address creation and lookup.
 pub mod pda;
-/// Alignment-1 Pod integer types (re-exported from `quasar-pod`).
+/// Alignment-1 Pod integer types (re-exported from `zeropod`).
 pub mod pod;
 /// Convenience re-exports for program code.
 pub mod prelude;
@@ -289,6 +287,15 @@ pub mod utils;
 pub mod validation;
 
 pub use crate::pod::{PodString as String, PodVec as Vec};
+/// Re-export of the `zeropod` crate so that `#[derive(ZeroPod)]` expansion
+/// inside framework-generated code can resolve `zeropod::*` paths without
+/// downstream crates adding a direct dependency.
+#[doc(hidden)]
+pub use zeropod as __zeropod;
+// Re-export zeropod traits for framework integration.
+pub use zeropod::{
+    ZcElem, ZcField, ZcValidate, ZeroPodCompact, ZeroPodError, ZeroPodFixed, ZeroPodSchema,
+};
 
 /// 32-byte address comparison via four `read_unaligned` u64 words.
 ///

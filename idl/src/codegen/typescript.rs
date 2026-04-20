@@ -67,11 +67,12 @@ fn generate_ts(idl: &Idl, target: TsTarget) -> String {
     let has_public_key = used.contains("pubkey");
     let has_pdas = model.features.has_pdas;
     let has_pda_account_seeds = model.features.has_pda_account_seeds;
+    let has_dynamic_types = idl.types.iter().any(|t| has_dynamic_fields(&t.ty.fields));
 
     // --- Imports ---
     match target {
         TsTarget::Web3js => {
-            if has_instructions {
+            if has_instructions || has_dynamic_types {
                 out.push_str("import { Buffer } from \"buffer\";\n");
             }
             out.push_str(
@@ -314,17 +315,23 @@ fn generate_ts(idl: &Idl, target: TsTarget) -> String {
     for type_def in &idl.types {
         let name = &type_def.name;
         let fields = &type_def.ty.fields;
-        writeln!(out, "export const {}Codec = getStructCodec([", name).expect("write to String");
-        for field in fields {
-            writeln!(
-                out,
-                "  [\"{}\", {}],",
-                field.name,
-                ts_codec(&field.ty, target)
-            )
-            .expect("write to String");
+
+        if has_dynamic_fields(fields) {
+            emit_compact_type_codec(&mut out, name, fields, target);
+        } else {
+            writeln!(out, "export const {}Codec = getStructCodec([", name)
+                .expect("write to String");
+            for field in fields {
+                writeln!(
+                    out,
+                    "  [\"{}\", {}],",
+                    field.name,
+                    ts_codec(&field.ty, target)
+                )
+                .expect("write to String");
+            }
+            out.push_str("]);\n\n");
         }
-        out.push_str("]);\n\n");
     }
 
     // === Enums ===
@@ -467,26 +474,34 @@ fn generate_ts(idl: &Idl, target: TsTarget) -> String {
                 )
                 .expect("write to String");
             } else {
+                let has_dyn = ix.args.iter().any(|a| is_direct_dynamic(&a.ty));
                 writeln!(out, "    if (matchDisc(data, {})) {{", const_name)
                     .expect("write to String");
-                out.push_str("      const argsCodec = getStructCodec([\n");
-                for arg in &ix.args {
+
+                if !has_dyn {
+                    // Fixed-only: use getStructCodec
+                    out.push_str("      const argsCodec = getStructCodec([\n");
+                    for arg in &ix.args {
+                        writeln!(
+                            out,
+                            "        [\"{}\", {}],",
+                            arg.name,
+                            ts_codec(&arg.ty, target)
+                        )
+                        .expect("write to String");
+                    }
+                    out.push_str("      ]);\n");
                     writeln!(
                         out,
-                        "        [\"{}\", {}],",
-                        arg.name,
-                        ts_codec(&arg.ty, target)
+                        "      return {{ type: ProgramInstruction.{}, args: \
+                         argsCodec.decode(data.slice({}.length)) }};",
+                        pascal, const_name
                     )
                     .expect("write to String");
+                } else {
+                    // Compact decode: [disc][fixed][prefixes][data]
+                    emit_compact_decode(&mut out, ix, &const_name, &pascal, target);
                 }
-                out.push_str("      ]);\n");
-                writeln!(
-                    out,
-                    "      return {{ type: ProgramInstruction.{}, args: \
-                     argsCodec.decode(data.slice({}.length)) }};",
-                    pascal, const_name
-                )
-                .expect("write to String");
                 out.push_str("    }\n");
             }
         }
@@ -631,10 +646,12 @@ fn generate_instruction_builders_web3js(
 
         // Encode instruction data
         let disc_str = super::format_disc_decimal(&ix.discriminator);
+        let has_dyn = ix.args.iter().any(|a| is_direct_dynamic(&a.ty));
         if ix.args.is_empty() {
             writeln!(out, "    const data = Buffer.from([{}]);", disc_str)
                 .expect("write to String");
-        } else {
+        } else if !has_dyn {
+            // Fixed-only: use getStructCodec
             out.push_str("    const argsCodec = getStructCodec([\n");
             for arg in &ix.args {
                 writeln!(
@@ -658,6 +675,9 @@ fn generate_instruction_builders_web3js(
                 arg_names.join(", ")
             )
             .expect("write to String");
+        } else {
+            // Compact layout: [disc][fixed fields][all prefixes][all dynamic data]
+            emit_compact_encoding(out, ix, &disc_str, TsTarget::Web3js, "Buffer.from");
         }
 
         // Return TransactionInstruction
@@ -784,10 +804,12 @@ fn generate_instruction_builders_kit(
 
         // Encode instruction data
         let disc_str = super::format_disc_decimal(&ix.discriminator);
+        let has_dyn = ix.args.iter().any(|a| is_direct_dynamic(&a.ty));
         if ix.args.is_empty() {
             writeln!(out, "    const data = Uint8Array.from([{}]);", disc_str)
                 .expect("write to String");
-        } else {
+        } else if !has_dyn {
+            // Fixed-only: use getStructCodec
             out.push_str("    const argsCodec = getStructCodec([\n");
             for arg in &ix.args {
                 writeln!(
@@ -811,6 +833,9 @@ fn generate_instruction_builders_kit(
                 arg_names.join(", ")
             )
             .expect("write to String");
+        } else {
+            // Compact layout: [disc][fixed fields][all prefixes][all dynamic data]
+            emit_compact_encoding(out, ix, &disc_str, TsTarget::Kit, "Uint8Array.from");
         }
 
         // Return Instruction
@@ -833,6 +858,464 @@ fn generate_instruction_builders_kit(
         out.push_str("    };\n");
         out.push_str("  }\n");
     }
+}
+
+/// Returns `true` if any field in the slice is a direct dynamic type.
+fn has_dynamic_fields(fields: &[crate::types::IdlField]) -> bool {
+    fields.iter().any(|f| is_direct_dynamic(&f.ty))
+}
+
+/// Emit a custom codec object for a type with dynamic fields (compact layout).
+///
+/// Layout: `[fixed fields][all length prefixes][all tail data]`
+///
+/// Unlike instruction codecs, type codecs have no discriminator (the account
+/// decoder strips the disc before calling the codec).
+fn emit_compact_type_codec(
+    out: &mut String,
+    name: &str,
+    fields: &[crate::types::IdlField],
+    target: TsTarget,
+) {
+    let fixed_fields: Vec<_> = fields
+        .iter()
+        .filter(|f| !is_direct_dynamic(&f.ty))
+        .collect();
+    let dyn_fields: Vec<_> = fields.iter().filter(|f| is_direct_dynamic(&f.ty)).collect();
+
+    let buf_ctor = match target {
+        TsTarget::Web3js => "Buffer.from",
+        TsTarget::Kit => "Uint8Array.from",
+    };
+
+    writeln!(out, "export const {name}Codec = {{").expect("write to String");
+
+    // ---- encode ----
+    writeln!(out, "  encode(value: {name}): Uint8Array {{").expect("write to String");
+
+    // Phase 1: fixed fields
+    if fixed_fields.is_empty() {
+        out.push_str("    const fixedBytes = new Uint8Array(0);\n");
+    } else {
+        out.push_str("    const fixedCodec = getStructCodec([\n");
+        for f in &fixed_fields {
+            writeln!(out, "      [\"{}\", {}],", f.name, ts_codec(&f.ty, target))
+                .expect("write to String");
+        }
+        out.push_str("    ]);\n");
+        let fixed_names: Vec<String> = fixed_fields
+            .iter()
+            .map(|f| format!("{}: value.{}", f.name, f.name))
+            .collect();
+        writeln!(
+            out,
+            "    const fixedBytes = fixedCodec.encode({{ {} }});",
+            fixed_names.join(", ")
+        )
+        .expect("write to String");
+    }
+
+    // Phase 2: length prefixes
+    for f in &dyn_fields {
+        let pfx = dynamic_prefix_bytes(&f.ty);
+        let pfx_codec = prefix_codec(pfx);
+        match &f.ty {
+            IdlType::DynString { .. } => {
+                writeln!(
+                    out,
+                    "    const {name}Bytes = new TextEncoder().encode(value.{name});",
+                    name = f.name
+                )
+                .expect("write to String");
+                writeln!(
+                    out,
+                    "    const {name}Prefix = {codec}.encode({name}Bytes.length);",
+                    name = f.name,
+                    codec = pfx_codec
+                )
+                .expect("write to String");
+            }
+            IdlType::DynVec { .. } => {
+                writeln!(
+                    out,
+                    "    const {name}Prefix = {codec}.encode(value.{name}.length);",
+                    name = f.name,
+                    codec = pfx_codec
+                )
+                .expect("write to String");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Phase 3: tail data
+    for f in &dyn_fields {
+        match &f.ty {
+            IdlType::DynString { .. } => {
+                // Already encoded as `{name}Bytes` in phase 2
+            }
+            IdlType::DynVec { vec } => {
+                let item_codec = ts_codec(&vec.items, target);
+                writeln!(
+                    out,
+                    "    const {name}Bytes = getArrayCodec({item_codec}, {{ size: \
+                     value.{name}.length }}).encode(value.{name});",
+                    name = f.name,
+                    item_codec = item_codec,
+                )
+                .expect("write to String");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Concatenate all phases
+    let mut concat_parts = vec!["fixedBytes".to_string()];
+    for f in &dyn_fields {
+        concat_parts.push(format!("{}Prefix", f.name));
+    }
+    for f in &dyn_fields {
+        concat_parts.push(format!("{}Bytes", f.name));
+    }
+
+    writeln!(
+        out,
+        "    return {}([{}]);",
+        buf_ctor,
+        concat_parts
+            .iter()
+            .map(|p| format!("...{}", p))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+    .expect("write to String");
+    out.push_str("  },\n");
+
+    // ---- decode ----
+    writeln!(out, "  decode(data: Uint8Array): {name} {{").expect("write to String");
+    out.push_str("    let offset = 0;\n");
+
+    // Phase 1: decode fixed fields
+    if !fixed_fields.is_empty() {
+        out.push_str("    const fixedCodec = getStructCodec([\n");
+        for f in &fixed_fields {
+            writeln!(out, "      [\"{}\", {}],", f.name, ts_codec(&f.ty, target))
+                .expect("write to String");
+        }
+        out.push_str("    ]);\n");
+        out.push_str("    const fixedResult = fixedCodec.decode(data.slice(offset));\n");
+        out.push_str(
+            "    offset += fixedCodec.fixedSize ?? fixedCodec.encode(fixedResult).length;\n",
+        );
+    }
+
+    // Phase 2: decode length prefixes
+    for f in &dyn_fields {
+        let pfx = dynamic_prefix_bytes(&f.ty);
+        let pfx_codec = prefix_codec(pfx);
+        writeln!(
+            out,
+            "    const {name}Len = {codec}.decode(data.slice(offset));",
+            name = f.name,
+            codec = pfx_codec
+        )
+        .expect("write to String");
+        writeln!(out, "    offset += {};", pfx).expect("write to String");
+    }
+
+    // Phase 3: decode tail data
+    for f in &dyn_fields {
+        match &f.ty {
+            IdlType::DynString { .. } => {
+                writeln!(
+                    out,
+                    "    const {name} = new TextDecoder().decode(data.slice(offset, offset + \
+                     Number({name}Len)));",
+                    name = f.name
+                )
+                .expect("write to String");
+                writeln!(out, "    offset += Number({}Len);", f.name).expect("write to String");
+            }
+            IdlType::DynVec { vec } => {
+                let item_codec = ts_codec(&vec.items, target);
+                writeln!(
+                    out,
+                    "    const {name}Codec = getArrayCodec({item_codec}, {{ size: \
+                     Number({name}Len) }});",
+                    name = f.name,
+                    item_codec = item_codec,
+                )
+                .expect("write to String");
+                writeln!(
+                    out,
+                    "    const {name} = {name}Codec.decode(data.slice(offset));",
+                    name = f.name
+                )
+                .expect("write to String");
+                writeln!(
+                    out,
+                    "    offset += {name}Codec.encode({name}).length;",
+                    name = f.name
+                )
+                .expect("write to String");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Build return object
+    let mut field_exprs = Vec::new();
+    for f in &fixed_fields {
+        field_exprs.push(format!("{}: fixedResult.{}", f.name, f.name));
+    }
+    for f in &dyn_fields {
+        field_exprs.push(f.name.clone());
+    }
+    writeln!(out, "    return {{ {} }};", field_exprs.join(", ")).expect("write to String");
+    out.push_str("  },\n");
+
+    out.push_str("};\n\n");
+}
+
+/// Emit compact (3-phase) encoding for an instruction with dynamic fields.
+///
+/// Layout: `[disc][fixed fields][all length prefixes][all dynamic data]`
+///
+/// `buf_ctor` is `"Buffer.from"` for web3.js or `"Uint8Array.from"` for kit.
+fn emit_compact_encoding(
+    out: &mut String,
+    ix: &crate::types::IdlInstruction,
+    disc_str: &str,
+    target: TsTarget,
+    buf_ctor: &str,
+) {
+    let fixed_args: Vec<_> = ix
+        .args
+        .iter()
+        .filter(|a| !is_direct_dynamic(&a.ty))
+        .collect();
+    let dyn_args: Vec<_> = ix
+        .args
+        .iter()
+        .filter(|a| is_direct_dynamic(&a.ty))
+        .collect();
+
+    out.push_str("    const disc = new Uint8Array([");
+    out.push_str(disc_str);
+    out.push_str("]);\n");
+
+    // Phase 1: fixed fields
+    if fixed_args.is_empty() {
+        out.push_str("    const fixedBytes = new Uint8Array(0);\n");
+    } else {
+        out.push_str("    const fixedCodec = getStructCodec([\n");
+        for arg in &fixed_args {
+            writeln!(
+                out,
+                "      [\"{}\", {}],",
+                arg.name,
+                ts_codec(&arg.ty, target)
+            )
+            .expect("write to String");
+        }
+        out.push_str("    ]);\n");
+        let fixed_names: Vec<String> = fixed_args
+            .iter()
+            .map(|a| format!("{}: input.{}", a.name, a.name))
+            .collect();
+        writeln!(
+            out,
+            "    const fixedBytes = fixedCodec.encode({{ {} }});",
+            fixed_names.join(", ")
+        )
+        .expect("write to String");
+    }
+
+    // Phase 2: length prefixes
+    for arg in &dyn_args {
+        let pfx = dynamic_prefix_bytes(&arg.ty);
+        let pfx_codec = prefix_codec(pfx);
+        match &arg.ty {
+            IdlType::DynString { .. } => {
+                writeln!(
+                    out,
+                    "    const {name}Bytes = new TextEncoder().encode(input.{name});",
+                    name = arg.name
+                )
+                .expect("write to String");
+                writeln!(
+                    out,
+                    "    const {name}Prefix = {codec}.encode({name}Bytes.length);",
+                    name = arg.name,
+                    codec = pfx_codec
+                )
+                .expect("write to String");
+            }
+            IdlType::DynVec { .. } => {
+                writeln!(
+                    out,
+                    "    const {name}Prefix = {codec}.encode(input.{name}.length);",
+                    name = arg.name,
+                    codec = pfx_codec
+                )
+                .expect("write to String");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Phase 3: tail data
+    for arg in &dyn_args {
+        match &arg.ty {
+            IdlType::DynString { .. } => {
+                // Already encoded as `{name}Bytes` in phase 2
+            }
+            IdlType::DynVec { vec } => {
+                let item_codec = ts_codec(&vec.items, target);
+                writeln!(
+                    out,
+                    "    const {name}Bytes = getArrayCodec({item_codec}, {{ size: \
+                     input.{name}.length }}).encode(input.{name});",
+                    name = arg.name,
+                    item_codec = item_codec,
+                )
+                .expect("write to String");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Concatenate all phases
+    let mut concat_parts = vec!["disc".to_string(), "fixedBytes".to_string()];
+    for arg in &dyn_args {
+        concat_parts.push(format!("{}Prefix", arg.name));
+    }
+    for arg in &dyn_args {
+        concat_parts.push(format!("{}Bytes", arg.name));
+    }
+
+    writeln!(
+        out,
+        "    const data = {}([{}]);",
+        buf_ctor,
+        concat_parts
+            .iter()
+            .map(|p| format!("...{}", p))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+    .expect("write to String");
+}
+
+/// Emit compact (3-phase) decoding for an instruction with dynamic fields.
+fn emit_compact_decode(
+    out: &mut String,
+    ix: &crate::types::IdlInstruction,
+    const_name: &str,
+    pascal: &str,
+    target: TsTarget,
+) {
+    let fixed_args: Vec<_> = ix
+        .args
+        .iter()
+        .filter(|a| !is_direct_dynamic(&a.ty))
+        .collect();
+    let dyn_args: Vec<_> = ix
+        .args
+        .iter()
+        .filter(|a| is_direct_dynamic(&a.ty))
+        .collect();
+
+    writeln!(out, "      let offset = {}.length;", const_name).expect("write to String");
+
+    // Phase 1: decode fixed fields
+    if !fixed_args.is_empty() {
+        out.push_str("      const fixedCodec = getStructCodec([\n");
+        for arg in &fixed_args {
+            writeln!(
+                out,
+                "        [\"{}\", {}],",
+                arg.name,
+                ts_codec(&arg.ty, target)
+            )
+            .expect("write to String");
+        }
+        out.push_str("      ]);\n");
+        out.push_str("      const fixedResult = fixedCodec.decode(data.slice(offset));\n");
+        out.push_str(
+            "      offset += fixedCodec.fixedSize ?? fixedCodec.encode(fixedResult).length;\n",
+        );
+    }
+
+    // Phase 2: decode length prefixes
+    for arg in &dyn_args {
+        let pfx = dynamic_prefix_bytes(&arg.ty);
+        let pfx_codec = prefix_codec(pfx);
+        writeln!(
+            out,
+            "      const {name}Len = {codec}.decode(data.slice(offset));",
+            name = arg.name,
+            codec = pfx_codec
+        )
+        .expect("write to String");
+        writeln!(out, "      offset += {};", pfx).expect("write to String");
+    }
+
+    // Phase 3: decode tail data
+    for arg in &dyn_args {
+        match &arg.ty {
+            IdlType::DynString { .. } => {
+                writeln!(
+                    out,
+                    "      const {name} = new TextDecoder().decode(data.slice(offset, offset + \
+                     Number({name}Len)));",
+                    name = arg.name
+                )
+                .expect("write to String");
+                writeln!(out, "      offset += Number({}Len);", arg.name).expect("write to String");
+            }
+            IdlType::DynVec { vec } => {
+                let item_codec = ts_codec(&vec.items, target);
+                writeln!(
+                    out,
+                    "      const {name}Codec = getArrayCodec({item_codec}, {{ size: \
+                     Number({name}Len) }});",
+                    name = arg.name,
+                    item_codec = item_codec,
+                )
+                .expect("write to String");
+                writeln!(
+                    out,
+                    "      const {name} = {name}Codec.decode(data.slice(offset));",
+                    name = arg.name
+                )
+                .expect("write to String");
+                writeln!(
+                    out,
+                    "      offset += {name}Codec.encode({name}).length;",
+                    name = arg.name
+                )
+                .expect("write to String");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Build the return object
+    let mut field_exprs = Vec::new();
+    for arg in &fixed_args {
+        field_exprs.push(format!("{}: fixedResult.{}", arg.name, arg.name));
+    }
+    for arg in &dyn_args {
+        field_exprs.push(arg.name.clone());
+    }
+    writeln!(
+        out,
+        "      return {{ type: ProgramInstruction.{}, args: {{ {} }} }};",
+        pascal,
+        field_exprs.join(", ")
+    )
+    .expect("write to String");
 }
 
 fn account_role(signer: bool, writable: bool) -> &'static str {
@@ -1328,6 +1811,21 @@ const PUBLIC_KEY_CODEC_HELPER: &str = r#"function getPublicKeyCodec() {
   );
 }
 "#;
+
+/// Returns `true` if the field is a top-level dynamic type (`DynString` or
+/// `DynVec`). These require compact wire-format handling.
+fn is_direct_dynamic(ty: &IdlType) -> bool {
+    matches!(ty, IdlType::DynString { .. } | IdlType::DynVec { .. })
+}
+
+/// Return the byte-width of the length prefix for a dynamic field.
+fn dynamic_prefix_bytes(ty: &IdlType) -> usize {
+    match ty {
+        IdlType::DynString { string } => string.prefix_bytes,
+        IdlType::DynVec { vec } => vec.prefix_bytes,
+        _ => unreachable!("dynamic_prefix_bytes called on non-dynamic type"),
+    }
+}
 
 const MATCH_DISC_HELPER: &str = r#"function matchDisc(data: Uint8Array, disc: Uint8Array): boolean {
   if (data.length < disc.length) return false;
