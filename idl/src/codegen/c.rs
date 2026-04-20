@@ -440,8 +440,8 @@ fn static_data_overhead(ty: &IdlType, types: &[IdlTypeDef]) -> usize {
                     .sum()
             })
             .unwrap_or(0),
-        IdlType::DynString { ref string } => string.prefix_bytes as usize,
-        IdlType::DynVec { ref vec } => vec.prefix_bytes as usize,
+        IdlType::DynString { ref string } => string.prefix_bytes,
+        IdlType::DynVec { ref vec } => vec.prefix_bytes,
     }
 }
 
@@ -464,33 +464,30 @@ fn serialize_dyn_bytes(name: &str, prefix_bytes: usize, t: &str) -> String {
         ),
     };
     format!(
-        "{t}if (off + {pb} + {name}_len > data_buf_len) return 0;\n\
-         {write_prefix}\
-         {t}for (uint32_t i = 0; i < {name}_len; i++) data_buf[off++] = {name}[i];\n"
+        "{t}if (off + {pb} + {name}_len > data_buf_len) return 0;\n{write_prefix}{t}for (uint32_t \
+         i = 0; i < {name}_len; i++) data_buf[off++] = {name}[i];\n"
     )
 }
 
 fn decode_dyn_bytes(name: &str, prefix_bytes: usize, t: &str) -> String {
     match prefix_bytes {
         1 => format!(
-            "{t}out->{name}_len = data[offset]; offset += 1;\n\
-             {t}out->{name} = &data[offset]; offset += out->{name}_len;\n"
+            "{t}out->{name}_len = data[offset]; offset += 1;\n{t}out->{name} = &data[offset]; \
+             offset += out->{name}_len;\n"
         ),
         2 => format!(
-            "{t}out->{name}_len = (uint32_t)((uint16_t)data[offset] | \
-             ((uint16_t)data[offset+1] << 8)); offset += 2;\n\
-             {t}out->{name} = &data[offset]; offset += out->{name}_len;\n"
+            "{t}out->{name}_len = (uint32_t)((uint16_t)data[offset] | ((uint16_t)data[offset+1] \
+             << 8)); offset += 2;\n{t}out->{name} = &data[offset]; offset += out->{name}_len;\n"
         ),
         4 => format!(
             "{t}out->{name}_len = (uint32_t)data[offset] | ((uint32_t)data[offset+1] << 8) | \
-             ((uint32_t)data[offset+2] << 16) | ((uint32_t)data[offset+3] << 24); offset += 4;\n\
-             {t}out->{name} = &data[offset]; offset += out->{name}_len;\n"
+             ((uint32_t)data[offset+2] << 16) | ((uint32_t)data[offset+3] << 24); offset += \
+             4;\n{t}out->{name} = &data[offset]; offset += out->{name}_len;\n"
         ),
         _ => format!(
             "{t}{{ uint64_t dlen = 0; for (int i = 0; i < 8; i++) dlen |= \
-             ((uint64_t)data[offset+i]) << (i*8); offset += 8; \
-             out->{name}_len = (uint32_t)dlen; out->{name} = &data[offset]; \
-             offset += out->{name}_len; }}\n"
+             ((uint64_t)data[offset+i]) << (i*8); offset += 8; out->{name}_len = (uint32_t)dlen; \
+             out->{name} = &data[offset]; offset += out->{name}_len; }}\n"
         ),
     }
 }
@@ -556,12 +553,8 @@ fn serialize_field_expr(name: &str, ty: &IdlType, types: &[IdlTypeDef], indent: 
             let ti = "    ".repeat(indent + 1);
             let inner = serialize_field_expr(name, option, types, indent + 1);
             format!(
-                "{t}if ({name}_present) {{\n\
-                 {ti}data_buf[off++] = 1;\n\
-                 {inner}\
-                 {t}}} else {{\n\
-                 {ti}data_buf[off++] = 0;\n\
-                 {t}}}\n"
+                "{t}if ({name}_present) {{\n{ti}data_buf[off++] = 1;\n{inner}{t}}} else \
+                 {{\n{ti}data_buf[off++] = 0;\n{t}}}\n"
             )
         }
         IdlType::Defined { defined } => {
@@ -649,14 +642,8 @@ fn decode_field_expr(name: &str, ty: &IdlType, depth: usize, types: &[IdlTypeDef
             let inner = decode_field_expr(name, option, depth + 1, types);
             let ti = "    ".repeat(depth + 1);
             format!(
-                "{t}if (data[offset] != 0) {{\n\
-                 {ti}offset += 1;\n\
-                 {ti}out->{name}_present = 1;\n\
-                 {inner}\
-                 {t}}} else {{\n\
-                 {ti}offset += 1;\n\
-                 {ti}out->{name}_present = 0;\n\
-                 {t}}}\n"
+                "{t}if (data[offset] != 0) {{\n{ti}offset += 1;\n{ti}out->{name}_present = \
+                 1;\n{inner}{t}}} else {{\n{ti}offset += 1;\n{ti}out->{name}_present = 0;\n{t}}}\n"
             )
         }
         IdlType::Defined { defined } => {
