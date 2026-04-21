@@ -2673,10 +2673,7 @@ fn cpi_aliasing_data_and_lamports_then_cpi_call() {
     );
 
     let data = unsafe { cpi_view.borrow_unchecked() };
-    assert_eq!(
-        u64::from_le_bytes(data[4..12].try_into().unwrap()),
-        777
-    );
+    assert_eq!(u64::from_le_bytes(data[4..12].try_into().unwrap()), 777);
     assert_eq!(cpi_view.lamports(), 5_000_000);
 }
 
@@ -2729,9 +2726,8 @@ fn cpi_aliasing_two_views_write_one_cpi_other() {
     let view_for_cpi = unsafe { buf.view() };
     let mut view_for_write = unsafe { AccountView::new_unchecked(buf.raw()) };
 
-    let account = unsafe {
-        Account::<TestAccountType>::from_account_view_unchecked_mut(&mut view_for_write)
-    };
+    let account =
+        unsafe { Account::<TestAccountType>::from_account_view_unchecked_mut(&mut view_for_write) };
 
     // Write through account (view_for_write path)
     set_lamports(account.to_account_view(), 99_999);

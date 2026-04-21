@@ -14,11 +14,11 @@ use {
 // borrow_state.
 //
 // Verifies:
-//   - set_inner data write survives the CPI round-trip (SVM
-//     serialize -> execute -> deserialize doesn't clobber it)
+//   - set_inner data write survives the CPI round-trip (SVM serialize ->
+//     execute -> deserialize doesn't clobber it)
 //   - CPI lamport change is visible through the same AccountView
-//   - A second set_inner after CPI still writes correctly
-//     (data_mut_ptr still valid)
+//   - A second set_inner after CPI still writes correctly (data_mut_ptr still
+//     valid)
 // ============================================================================
 
 #[test]

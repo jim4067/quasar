@@ -11,8 +11,8 @@ use {
 /// `cpi_account_from_view()` extracts raw `*const` pointers from the
 /// `AccountView` without checking `borrow_state`. This test verifies:
 ///
-///   1. The data write from `set_inner()` survives the CPI round-trip
-///      (SVM serialize → execute → deserialize doesn't clobber it).
+///   1. The data write from `set_inner()` survives the CPI round-trip (SVM
+///      serialize → execute → deserialize doesn't clobber it).
 ///   2. The CPI's lamport change is visible through the same `AccountView`
 ///      after CPI returns.
 ///   3. A second `set_inner()` after CPI still writes correctly (the
