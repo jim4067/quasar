@@ -17,7 +17,7 @@ pub(crate) fn emit_parse_body(
 ) -> syn::Result<proc_macro2::TokenStream> {
     let rent_fetch = emit_rent_fetch(semantics);
     let init_stmts = super::init::emit_init_stmts(semantics)?;
-    let realloc_stmts = super::init::emit_realloc_steps(semantics)?;
+    let realloc_stmts = super::lifecycle::emit_realloc_steps(semantics)?;
     let construct_stmts = emit_construct_steps(semantics);
     let check_stmts = emit_check_blocks(semantics);
     let bump_vars = emit_bump_vars(semantics);
@@ -116,10 +116,7 @@ fn emit_inner_expr(sem: &FieldSemantics) -> proc_macro2::TokenStream {
     if matches!(sem.core.shape, FieldShape::Composite) {
         quote! { #ident }
     } else if sem.core.dynamic {
-        let inner_ty = match &sem.core.shape {
-            FieldShape::Account { inner_ty } => inner_ty,
-            _ => &sem.core.effective_ty,
-        };
+        let inner_ty = sem.core.inner_ty.as_ref().unwrap_or(&sem.core.effective_ty);
         let base = strip_generics(inner_ty);
         quote! { #base::from_account_view(#ident)? }
     } else if skip_checks {
@@ -153,6 +150,16 @@ fn emit_one_check_block(
     let field_ident = &sem.core.ident;
     let mut stmts = Vec::new();
 
+    // For Migration<From, To> fields, user checks access source data via
+    // source().unwrap() instead of Deref. At check time (before handler),
+    // the source discriminator is guaranteed present (validated in parse).
+    let is_migration = matches!(sem.core.shape, FieldShape::Migration);
+    let field_access = if is_migration {
+        quote! { #field_ident.source().unwrap() }
+    } else {
+        quote! { #field_ident }
+    };
+
     for uc in &sem.user_checks {
         match &uc.kind {
             UserCheckKind::HasOne { target } => {
@@ -164,14 +171,14 @@ fn emit_one_check_block(
                 let target_str = target.to_string();
                 stmts.push(quote! {
                     #[cfg(feature = "debug")]
-                    if !quasar_lang::keys_eq(&#field_ident.#target, #target.to_account_view().address()) {
+                    if !quasar_lang::keys_eq(&#field_access.#target, #target.to_account_view().address()) {
                         quasar_lang::prelude::log(concat!(
                             "has_one mismatch: ", #field_name_str, ".", #target_str,
                             " != ", #target_str, ".address()"
                         ));
                     }
                     quasar_lang::validation::check_address_match(
-                        &#field_ident.#target,
+                        &#field_access.#target,
                         #target.to_account_view().address(),
                         #err,
                     )?;
@@ -208,6 +215,9 @@ fn emit_one_check_block(
         }
         if let Some(token_check) = super::init::emit_non_init_check(sem) {
             stmts.push(token_check);
+        }
+        if let Some(generic_check) = super::params::emit_validate_params(sem) {
+            stmts.push(generic_check);
         }
     }
 
@@ -246,7 +256,7 @@ fn emit_pda_check(
             addr_expr: &addr_access,
             seed_array_name: &seed_array_name,
             explicit_bump_name: &explicit_bump_name,
-            bare_mode: if sem.core.shape.supports_existing_pda_fast_path() {
+            bare_mode: if sem.core.supports_existing_pda_fast_path {
                 PdaBareMode::KnownAddress
             } else {
                 PdaBareMode::DeriveExpected

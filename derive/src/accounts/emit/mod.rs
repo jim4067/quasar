@@ -1,7 +1,10 @@
 //! Emit layer: renders from the resolved accounts model and plan.
 
 mod init;
+mod lifecycle;
+pub(crate) mod migrate;
 mod output;
+pub(super) mod params;
 mod parse;
 
 pub(crate) struct EmitCx {
@@ -16,5 +19,5 @@ pub(crate) use {
 pub(crate) fn emit_epilogue(
     semantics: &[super::resolve::FieldSemantics],
 ) -> syn::Result<proc_macro2::TokenStream> {
-    init::emit_epilogue(semantics)
+    lifecycle::emit_epilogue(semantics)
 }

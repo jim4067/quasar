@@ -340,13 +340,13 @@ fn resolve_field_type_info(
     all_semantics: &[FieldSemantics],
 ) -> (Option<syn::Type>, Option<AccountWrapperKind>) {
     if let Some(sem) = all_semantics.iter().find(|s| s.core.ident == *root) {
-        match &sem.core.shape {
-            FieldShape::Account { inner_ty } => {
-                return (Some(inner_ty.clone()), Some(AccountWrapperKind::Account));
+        match sem.core.shape {
+            FieldShape::Account => {
+                return (sem.core.inner_ty.clone(), Some(AccountWrapperKind::Account));
             }
-            FieldShape::InterfaceAccount { inner_ty } => {
+            FieldShape::InterfaceAccount => {
                 return (
-                    Some(inner_ty.clone()),
+                    sem.core.inner_ty.clone(),
                     Some(AccountWrapperKind::InterfaceAccount),
                 );
             }

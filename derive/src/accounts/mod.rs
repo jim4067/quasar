@@ -120,10 +120,12 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
         Ok(ts) => ts,
         Err(e) => return e.to_compile_error().into(),
     };
+    let has_epilogue = !epilogue_method.is_empty();
 
     // --- Seeds impl ---
 
     let seeds_methods = emit::emit_seed_methods(&semantics, &emit_cx);
+
     // --- Client macro ---
 
     let client_macro = crate::client_macro::generate_accounts_macro(name, &semantics);
@@ -150,6 +152,7 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
         parse_body,
         bumps_struct,
         epilogue_method,
+        has_epilogue,
         seeds_methods,
         client_macro,
         ix_arg_extraction,

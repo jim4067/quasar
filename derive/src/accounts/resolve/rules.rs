@@ -34,7 +34,7 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
                 "#[account(sweep)] requires `token::mint` and `token::authority`",
             ),
             (
-                sem.has_realloc() && !matches!(sem.core.shape, FieldShape::Account { .. }),
+                sem.has_realloc() && !matches!(sem.core.shape, FieldShape::Account),
                 "#[account(realloc)] is only valid on Account<T> fields",
             ),
             (
@@ -42,18 +42,47 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
                 "#[account(realloc)] cannot be used on Option<Account<T>> fields",
             ),
             (
-                sem.has_realloc() && sem.core.shape.is_token_or_mint(),
+                matches!(sem.core.shape, FieldShape::Migration) && sem.core.optional,
+                "Migration<From, To> cannot be wrapped in Option",
+            ),
+            (
+                matches!(sem.core.shape, FieldShape::Migration) && sem.has_init(),
+                "Migration<From, To> cannot be combined with init",
+            ),
+            (
+                matches!(sem.core.shape, FieldShape::Migration) && sem.has_close(),
+                "Migration<From, To> cannot be combined with close",
+            ),
+            (
+                matches!(sem.core.shape, FieldShape::Migration) && sem.support.payer.is_none(),
+                "Migration<From, To> requires a payer. Add a `payer` field or specify `payer = \
+                 <field>` on the field.",
+            ),
+            (
+                sem.has_realloc() && sem.core.is_token_or_mint,
                 "#[account(realloc)] cannot be used on token or mint accounts — their size is \
                  fixed by the token program",
             ),
             (
-                sem.has_sweep() && !sem.core.shape.is_token_account(),
+                sem.has_sweep() && !sem.core.is_token_account,
                 "#[account(sweep)] is only valid on token accounts, not mint accounts",
             ),
             (
-                sem.has_close() && sem.core.shape.is_mint(),
+                sem.has_close() && sem.core.is_mint,
                 "#[account(close)] cannot be used on mint accounts. Mint closing is not supported \
                  through the token-account close path.",
+            ),
+            (
+                sem.has_close()
+                    && sem.core.is_token_account
+                    && sem.token.is_none()
+                    && sem.ata.is_none(),
+                "#[account(close)] on token accounts requires `token::authority` or \
+                 `associated_token::authority`",
+            ),
+            (
+                sem.has_close() && sem.core.is_token_account && sem.support.token_program.is_none(),
+                "#[account(close)] on token accounts requires a token program field",
             ),
         ],
     )?;
@@ -78,8 +107,8 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
         span,
         &[(
             sem.has_raw_pda()
-                && matches!(sem.core.shape, FieldShape::Account { .. })
-                && !sem.core.shape.is_token_or_mint()
+                && matches!(sem.core.shape, FieldShape::Account)
+                && !sem.core.is_token_or_mint
                 && !sem.has_init(),
             "Raw `seeds` are not allowed on `Account<T>` fields; use `typed_seeds` instead",
         )],

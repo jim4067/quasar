@@ -1,9 +1,6 @@
 use {
     super::super::{
-        resolve::{
-            FieldSemantics, FieldShape, InitMode, LifecycleConstraint, PdaConstraint,
-            ReallocConstraint,
-        },
+        resolve::{FieldSemantics, InitMode, PdaConstraint},
         syntax::SeedRenderContext,
     },
     quote::{format_ident, quote},
@@ -31,106 +28,8 @@ pub(super) fn emit_init_stmts(
     Ok(stmts)
 }
 
-pub(super) fn emit_realloc_steps(
-    semantics: &[FieldSemantics],
-) -> syn::Result<Vec<proc_macro2::TokenStream>> {
-    semantics
-        .iter()
-        .filter_map(|sem| sem.realloc.as_ref().map(|rc| (sem, rc)))
-        .map(|(sem, rc)| emit_one_realloc(sem, rc))
-        .collect()
-}
-
-pub(super) fn emit_epilogue(semantics: &[FieldSemantics]) -> syn::Result<proc_macro2::TokenStream> {
-    let mut sweep_stmts = Vec::new();
-    let mut close_stmts = Vec::new();
-
-    for sem in semantics {
-        let field = &sem.core.ident;
-        for lifecycle in &sem.lifecycle {
-            match lifecycle {
-                LifecycleConstraint::Sweep { receiver } => {
-                    let authority = token_authority(sem).cloned().ok_or_else(|| {
-                        syn::Error::new(field.span(), "sweep requires token::authority")
-                    })?;
-                    let mint = token_mint(sem).cloned().ok_or_else(|| {
-                        syn::Error::new(field.span(), "sweep requires token::mint")
-                    })?;
-                    let token_program = token_program(sem).ok_or_else(|| {
-                        syn::Error::new(field.span(), "sweep requires a token program field")
-                    })?;
-                    sweep_stmts.push(quote! {
-                        quasar_spl::sweep_token_account(
-                            self.#token_program.to_account_view(),
-                            self.#field.to_account_view(),
-                            self.#mint.to_account_view(),
-                            self.#receiver.to_account_view(),
-                            self.#authority.to_account_view(),
-                        )?;
-                    });
-                }
-                LifecycleConstraint::Close { destination } => {
-                    if let (Some(authority), Some(token_program)) =
-                        (token_authority(sem).cloned(), token_program(sem))
-                    {
-                        close_stmts.push(quote! {
-                            quasar_spl::close_token_account(
-                                self.#token_program.to_account_view(),
-                                self.#field.to_account_view(),
-                                self.#destination.to_account_view(),
-                                self.#authority.to_account_view(),
-                            )?;
-                        });
-                    } else {
-                        match &sem.core.shape {
-                            FieldShape::Account { .. }
-                            | FieldShape::InterfaceAccount { .. }
-                            | FieldShape::SystemAccount
-                            | FieldShape::Other => {
-                                close_stmts.push(quote! {
-                                    self.#field.close(self.#destination.to_account_view())?;
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if sweep_stmts.is_empty() && close_stmts.is_empty() {
-        return Ok(quote! {});
-    }
-
-    Ok(quote! {
-        #[inline(always)]
-        fn epilogue(&mut self) -> Result<(), ProgramError> {
-            #(#sweep_stmts)*
-            #(#close_stmts)*
-            Ok(())
-        }
-    })
-}
-
 pub(super) fn emit_non_init_check(sem: &FieldSemantics) -> Option<proc_macro2::TokenStream> {
     let field = &sem.core.ident;
-
-    if let Some(tc) = &sem.token {
-        let ty = &sem.core.effective_ty;
-        let mint = &tc.mint;
-        let auth = &tc.authority;
-        let token_program = token_program_expr(sem);
-        return Some(quote! {
-            {
-                let mut __params = <#ty as quasar_lang::account_load::AccountLoad>::Params::default();
-                __params.mint = Some(*#mint.to_account_view().address());
-                __params.authority = Some(*#auth.to_account_view().address());
-                __params.token_program = Some(*#token_program);
-                quasar_lang::account_load::AccountLoad::validate(#field, &__params)?;
-            }
-        });
-    }
 
     if let Some(ac) = &sem.ata {
         let wallet = &ac.authority;
@@ -146,37 +45,7 @@ pub(super) fn emit_non_init_check(sem: &FieldSemantics) -> Option<proc_macro2::T
         });
     }
 
-    sem.mint.as_ref().map(|mc| {
-        let ty = &sem.core.effective_ty;
-        let decimals = &mc.decimals;
-        let auth = &mc.authority;
-        let freeze_expr = mint_freeze_load_expr(&mc.freeze_authority);
-        let token_program = token_program_expr(sem);
-        quote! {
-            {
-                let mut __params = <#ty as quasar_lang::account_load::AccountLoad>::Params::default();
-                __params.authority = Some(*#auth.to_account_view().address());
-                __params.decimals = Some((#decimals) as u8);
-                __params.freeze_authority = #freeze_expr;
-                __params.token_program = Some(*#token_program);
-                quasar_lang::account_load::AccountLoad::validate(#field, &__params)?;
-            }
-        }
-    })
-}
-
-pub(super) fn token_authority(sem: &FieldSemantics) -> Option<&syn::Ident> {
-    sem.token
-        .as_ref()
-        .map(|tc| &tc.authority)
-        .or_else(|| sem.ata.as_ref().map(|ac| &ac.authority))
-}
-
-pub(super) fn token_mint(sem: &FieldSemantics) -> Option<&syn::Ident> {
-    sem.token
-        .as_ref()
-        .map(|tc| &tc.mint)
-        .or_else(|| sem.ata.as_ref().map(|ac| &ac.mint))
+    super::params::emit_builtin_validate_params_for(sem, quote! { #field })
 }
 
 pub(super) fn token_program(sem: &FieldSemantics) -> Option<&syn::Ident> {
@@ -188,6 +57,7 @@ fn emit_one_init(
     all_semantics: &[FieldSemantics],
 ) -> syn::Result<proc_macro2::TokenStream> {
     let field = &sem.core.ident;
+    let ty = &sem.core.effective_ty;
     let init = sem.init.as_ref().expect("checked by caller");
     let guard = matches!(init.mode, InitMode::InitIfNeeded);
     let payer = require_ident(
@@ -198,32 +68,101 @@ fn emit_one_init(
 
     let (signers_setup, signers_ref) = emit_signers(field, sem.pda.as_ref(), all_semantics);
 
-    if let Some(token_init) = emit_token_init(sem, guard, &payer, &signers_setup, &signers_ref)? {
-        return Ok(token_init);
+    // Reject init_param:: on ATA fields — ATA init is direct codegen.
+    if sem.ata.is_some() && !sem.params.init.is_empty() {
+        return Err(syn::Error::new(
+            sem.params.init[0].key.span(),
+            "`init_param::` is not supported on associated_token fields (ATA init uses direct \
+             codegen, not AccountInit)",
+        ));
     }
 
-    let inner_ty = match &sem.core.shape {
-        FieldShape::Account { inner_ty } | FieldShape::InterfaceAccount { inner_ty } => inner_ty,
-        _ => &sem.core.effective_ty,
-    };
+    // ATA init stays as direct codegen — same type (Token) but different
+    // CPI (Associated Token Program). Must check BEFORE the trait path.
+    if let Some(ata_init) = emit_ata_init(sem, guard, &payer)? {
+        return Ok(ata_init);
+    }
+
+    // --- Trait-based init path via BehaviorTarget ---
+    let inner_ty = sem.core.inner_ty.as_ref().unwrap_or(&sem.core.effective_ty);
     let inner_base = crate::helpers::strip_generics(inner_ty);
+    // SPL init impls (Token, Mint) handle space internally — their
+    // init_account_with_rent calls use hardcoded LEN constants. Only
+    // program-owned types need Space::SPACE from the macro.
+    let has_spl_init = sem.token.is_some() || sem.mint.is_some();
     let space_expr = if let Some(space) = &init.space {
         quote! { (#space) as u64 }
+    } else if has_spl_init {
+        // SPL AccountInit::init() ignores ctx.space — pass 0.
+        quote! { 0u64 }
     } else {
         quote! { <#inner_base as quasar_lang::traits::Space>::SPACE as u64 }
     };
+
+    let init_param_assigns = super::params::emit_init_param_assigns(sem)?;
+
     let cpi_body = quote! {
         #signers_setup
-        quasar_lang::account_init::init_account(
-            #payer, #field, #space_expr,
-            __program_id, #signers_ref, &__shared_rent,
-            <#inner_base as quasar_lang::traits::Discriminator>::DISCRIMINATOR,
+        type __Target = <#ty as quasar_lang::account_load::AccountLoad>::BehaviorTarget;
+        let mut __init_params =
+            <__Target as quasar_lang::account_init::AccountInit>::InitParams::default();
+        #init_param_assigns
+        <__Target as quasar_lang::account_init::AccountInit>::init(
+            quasar_lang::account_init::InitCtx {
+                payer: #payer.to_account_view(),
+                target: #field,
+                program_id: __program_id,
+                space: #space_expr,
+                signers: #signers_ref,
+                rent: &__shared_rent,
+            },
+            &__init_params,
         )?;
     };
+
     let validate = if guard {
+        // init_if_needed existing-account branch: validate through the
+        // wrapper's AccountLoad (handles both single-owner Account<T> and
+        // multi-owner InterfaceAccount<T>), then run SPL/param validation.
+        let field_name_str = field.to_string();
+
+        // ATA is special: address-derivation validation, not account-type.
+        let ata_validate = sem.ata.as_ref().map(|ac| {
+            let wallet = &ac.authority;
+            let mint = &ac.mint;
+            let tp_expr = token_program_expr(sem);
+            quote! {
+                quasar_spl::validate_ata(
+                    #field.to_account_view(),
+                    #wallet.to_account_view().address(),
+                    #mint.to_account_view().address(),
+                    #tp_expr,
+                )?;
+            }
+        });
+
+        // Built-in SPL param validation (token::mint, mint::decimals, etc.)
+        let spl_param_validate =
+            super::params::emit_builtin_validate_params_for(sem, quote! { &__existing })
+                .unwrap_or_default();
+
+        // User param:: validation
+        let user_param_validate =
+            super::params::emit_validate_params_on(sem, quote! { &__existing });
+
+        let ata_stmts = ata_validate.unwrap_or_default();
+        let spl_stmts = spl_param_validate;
+        let user_stmts = user_param_validate.unwrap_or_default();
+
         Some(quote! {
-            <#inner_base as quasar_lang::traits::CheckOwner>::check_owner(#field.to_account_view())?;
-            <#inner_base as quasar_lang::traits::AccountCheck>::check(#field.to_account_view())?;
+            // Load through wrapper's AccountLoad (correct for both
+            // Account<T> and InterfaceAccount<T>).
+            let __existing = <#ty as quasar_lang::account_load::AccountLoad>::load(
+                #field, #field_name_str,
+            )?;
+            #ata_stmts
+            #spl_stmts
+            #user_stmts
         })
     } else {
         None
@@ -231,114 +170,47 @@ fn emit_one_init(
     Ok(wrap_init_guard(field, guard, cpi_body, validate))
 }
 
-fn emit_token_init(
+/// ATA init stays as direct codegen — the ATA program is a different
+/// program than the account's owner, so AccountInit for Token cannot
+/// distinguish token-account init from ATA init.
+fn emit_ata_init(
     sem: &FieldSemantics,
     guard: bool,
     payer: &syn::Ident,
-    signers_setup: &proc_macro2::TokenStream,
-    signers_ref: &proc_macro2::TokenStream,
 ) -> syn::Result<Option<proc_macro2::TokenStream>> {
-    let field = &sem.core.ident;
-
-    if let Some(ac) = &sem.ata {
-        let authority = &ac.authority;
-        let mint = &ac.mint;
-        let ata_program = require_ident(
-            sem.support.associated_token_program.as_ref().cloned(),
-            field,
-            "#[account(init, associated_token::...)] requires an AssociatedTokenProgram field",
-        )?;
-        let token_program = require_ident(
-            sem.support.token_program.as_ref().cloned(),
-            field,
-            "ATA init requires a token program field",
-        )?;
-        let system_program = require_ident(
-            sem.support.system_program.as_ref().cloned(),
-            field,
-            "ATA init requires a System program field",
-        )?;
-
-        let cpi_body = quote! {
-            quasar_spl::init_ata(
-                #ata_program, #payer, #field, #authority, #mint,
-                #system_program, #token_program, #guard,
-            )?;
-        };
-        let validate = quote! {
-            quasar_spl::validate_ata(
-                #field.to_account_view(),
-                #authority.to_account_view().address(),
-                #mint.to_account_view().address(),
-                #token_program.address(),
-            )?;
-        };
-        return Ok(Some(wrap_init_guard(
-            field,
-            guard,
-            cpi_body,
-            Some(validate),
-        )));
-    }
-
-    if let Some(tc) = &sem.token {
-        let mint = &tc.mint;
-        let authority = &tc.authority;
-        let token_program = require_ident(
-            sem.support.token_program.as_ref().cloned(),
-            field,
-            "Token init requires a token program field",
-        )?;
-        let cpi_body = quote! {
-            #signers_setup
-            quasar_spl::init_token_account(
-                #payer, #field, #token_program, #mint,
-                #authority.address(), #signers_ref, &__shared_rent,
-            )?;
-        };
-        let validate = quote! {
-            quasar_spl::validate_token_account(
-                #field.to_account_view(),
-                #mint.to_account_view().address(),
-                #authority.to_account_view().address(),
-                #token_program.address(),
-            )?;
-        };
-        return Ok(Some(wrap_init_guard(
-            field,
-            guard,
-            cpi_body,
-            Some(validate),
-        )));
-    }
-
-    let Some(mc) = &sem.mint else {
+    let Some(ac) = &sem.ata else {
         return Ok(None);
     };
-
-    let decimals = &mc.decimals;
-    let authority = &mc.authority;
+    let field = &sem.core.ident;
+    let authority = &ac.authority;
+    let mint = &ac.mint;
+    let ata_program = require_ident(
+        sem.support.associated_token_program.as_ref().cloned(),
+        field,
+        "#[account(init, associated_token::...)] requires an AssociatedTokenProgram field",
+    )?;
     let token_program = require_ident(
         sem.support.token_program.as_ref().cloned(),
         field,
-        "Mint init requires a token program field",
+        "ATA init requires a token program field",
     )?;
-    let freeze_init = mint_freeze_address_expr(&mc.freeze_authority);
-    let freeze_validate = mint_freeze_validate_expr(&mc.freeze_authority);
+    let system_program = require_ident(
+        sem.support.system_program.as_ref().cloned(),
+        field,
+        "ATA init requires a System program field",
+    )?;
+
     let cpi_body = quote! {
-        #signers_setup
-        quasar_spl::init_mint_account(
-            #payer, #field, #token_program,
-            (#decimals) as u8, #authority.address(), #freeze_init,
-            #signers_ref, &__shared_rent,
+        quasar_spl::init_ata(
+            #ata_program, #payer, #field, #authority, #mint,
+            #system_program, #token_program, #guard,
         )?;
     };
     let validate = quote! {
-        quasar_spl::validate_mint(
+        quasar_spl::validate_ata(
             #field.to_account_view(),
             #authority.to_account_view().address(),
-            (#decimals) as u8,
-            #freeze_validate,
+            #mint.to_account_view().address(),
             #token_program.address(),
         )?;
     };
@@ -399,53 +271,10 @@ fn emit_signers(
     )
 }
 
-fn emit_one_realloc(
-    sem: &FieldSemantics,
-    rc: &ReallocConstraint,
-) -> syn::Result<proc_macro2::TokenStream> {
-    let field = &sem.core.ident;
-    let space = &rc.space_expr;
-    let payer = sem
-        .support
-        .realloc_payer
-        .clone()
-        .ok_or_else(|| syn::Error::new(field.span(), "realloc requires a payer field"))?;
-
-    Ok(quote! {
-        {
-            let __realloc_space = (#space) as usize;
-            quasar_lang::accounts::realloc_account(
-                #field, __realloc_space, #payer, Some(&__shared_rent)
-            )?;
-        }
-    })
-}
-
 fn token_program_expr(sem: &FieldSemantics) -> syn::Expr {
     match token_program(sem) {
         Some(token_program) => syn::parse_quote!(#token_program.to_account_view().address()),
         None => syn::parse_quote!(&quasar_spl::SPL_TOKEN_ID),
-    }
-}
-
-fn mint_freeze_address_expr(freeze_authority: &Option<syn::Ident>) -> proc_macro2::TokenStream {
-    match freeze_authority {
-        Some(freeze_authority) => quote! { Some(#freeze_authority.address()) },
-        None => quote! { None },
-    }
-}
-
-fn mint_freeze_load_expr(freeze_authority: &Option<syn::Ident>) -> proc_macro2::TokenStream {
-    match freeze_authority {
-        Some(freeze_authority) => quote! { Some(*#freeze_authority.to_account_view().address()) },
-        None => quote! { None },
-    }
-}
-
-fn mint_freeze_validate_expr(freeze_authority: &Option<syn::Ident>) -> proc_macro2::TokenStream {
-    match freeze_authority {
-        Some(freeze_authority) => quote! { Some(#freeze_authority.to_account_view().address()) },
-        None => quote! { None },
     }
 }
 

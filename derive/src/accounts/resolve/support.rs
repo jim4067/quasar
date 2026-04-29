@@ -40,6 +40,17 @@ pub(super) fn resolve_supports(semantics: &mut [FieldSemantics]) -> syn::Result<
             sem.support.rent_sysvar = index.rent_sysvar.clone();
         }
 
+        // Migration<From, To> field type implies payer + system program.
+        // Explicit payer is already set by lower_constraints when
+        // #[account(payer = X)] is present on the field.
+        if matches!(sem.core.shape, FieldShape::Migration) {
+            if sem.support.payer.is_none() {
+                sem.support.payer = index.payer_default.clone();
+            }
+            sem.support.system_program = index.system_program.clone();
+            sem.support.rent_sysvar = index.rent_sysvar.clone();
+        }
+
         if uses_token_program(sem) {
             if explicit_token_program.is_none() && index.token_program_candidates.len() > 1 {
                 return Err(syn::Error::new_spanned(
@@ -70,34 +81,26 @@ fn build_accounts_index(semantics: &[FieldSemantics]) -> AccountsIndex {
     for sem in semantics {
         let ident = &sem.core.ident;
 
-        match &sem.core.shape {
-            FieldShape::Program { .. } => {
-                if let Some(name) = sem.core.shape.inner_base_name() {
-                    match name.to_string().as_str() {
-                        "System" if system_program.is_none() => {
-                            system_program = Some(ident.clone())
-                        }
-                        "Token" | "Token2022" => {
-                            token_program_candidates.push(ident.clone());
-                        }
-                        "AssociatedTokenProgram" if associated_token_program.is_none() => {
-                            associated_token_program = Some(ident.clone());
-                        }
-                        _ => {}
+        match sem.core.shape {
+            FieldShape::Program => {
+                if let Some(name) = sem.core.inner_name.as_ref() {
+                    if name == "System" && system_program.is_none() {
+                        system_program = Some(ident.clone());
+                    } else if name == "Token" || name == "Token2022" {
+                        token_program_candidates.push(ident.clone());
+                    } else if name == "AssociatedTokenProgram" && associated_token_program.is_none()
+                    {
+                        associated_token_program = Some(ident.clone());
                     }
                 }
             }
-            FieldShape::Interface { .. }
-                if sem.core.shape.inner_name_matches(&["TokenInterface"]) =>
-            {
+            FieldShape::Interface if inner_name_is(sem, "TokenInterface") => {
                 token_program_candidates.push(ident.clone());
             }
-            FieldShape::Sysvar { .. }
-                if sem.core.shape.inner_name_matches(&["Rent"]) && rent_sysvar.is_none() =>
-            {
+            FieldShape::Sysvar if inner_name_is(sem, "Rent") && rent_sysvar.is_none() => {
                 rent_sysvar = Some(ident.clone());
             }
-            FieldShape::Account { .. } | FieldShape::InterfaceAccount { .. } => {}
+            FieldShape::Account | FieldShape::InterfaceAccount => {}
             FieldShape::Composite => {}
             _ => {}
         }
@@ -120,6 +123,13 @@ fn build_accounts_index(semantics: &[FieldSemantics]) -> AccountsIndex {
         associated_token_program,
         rent_sysvar,
     }
+}
+
+fn inner_name_is(sem: &FieldSemantics, expected: &str) -> bool {
+    sem.core
+        .inner_name
+        .as_ref()
+        .is_some_and(|name| name == expected)
 }
 
 fn uses_token_program(sem: &FieldSemantics) -> bool {

@@ -47,7 +47,7 @@ impl HeaderPlan {
                 || sem.client_requires_signer(),
             requires_executable: matches!(
                 sem.core.shape,
-                resolve::FieldShape::Program { .. } | resolve::FieldShape::Interface { .. }
+                resolve::FieldShape::Program | resolve::FieldShape::Interface
             ),
             writable: sem.is_writable(),
             optional: sem.core.optional,

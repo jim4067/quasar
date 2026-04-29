@@ -43,6 +43,8 @@ pub(crate) enum AccountDirective {
     MintInitAuthority(Ident),
     MintFreezeAuthority(Ident),
     MintTokenProgram(Ident),
+    Param { key: Ident, value: Expr },
+    InitParam { key: Ident, value: Expr },
 }
 
 struct ParsedDirective {
@@ -141,6 +143,13 @@ fn lower_directive(directive: ParsedDirective) -> syn::Result<AccountDirective> 
         [name] if *name == "seeds" => lower_seeds_directive(directive),
         [name] if *name == "bump" => Ok(AccountDirective::Bump(expect_optional_expr(directive)?)),
         [name] if *name == "sweep" => Ok(AccountDirective::Sweep(expect_ident_value(directive)?)),
+        [name] if *name == "migrate" => Err(syn::Error::new(
+            name.span(),
+            "#[account(migrate = X)] is deprecated. Use the `Migration<From, To>` field type \
+             instead:\n\n  Before: #[account(migrate = ConfigV2, payer = payer)]\n  pub config: \
+             Account<ConfigV1>,\n\n  After:  #[account(payer = payer)]\n  pub config: \
+             Migration<ConfigV1, ConfigV2>,",
+        )),
         [ns] if *ns == "realloc" => Ok(AccountDirective::Realloc(expect_expr_value(directive)?)),
         [ns, sub] if *ns == "realloc" && *sub == "payer" => Ok(AccountDirective::ReallocPayer(
             expect_ident_value(directive)?,
@@ -191,6 +200,14 @@ fn lower_directive(directive: ParsedDirective) -> syn::Result<AccountDirective> 
             path.segments.last().expect("non-empty path").ident.span(),
             format!("unknown associated_token attribute: `associated_token::{sub_key}`"),
         )),
+        [ns, key] if *ns == "param" => Ok(AccountDirective::Param {
+            key: (*key).clone(),
+            value: expect_expr_value(directive)?,
+        }),
+        [ns, key] if *ns == "init_param" => Ok(AccountDirective::InitParam {
+            key: (*key).clone(),
+            value: expect_expr_value(directive)?,
+        }),
         _ => Err(syn::Error::new(
             path.segments.first().expect("non-empty path").ident.span(),
             format!("unknown account attribute: `{}`", join_path(path)),
@@ -328,7 +345,7 @@ fn directive_path(directive: &ParsedDirective) -> syn::Result<&Path> {
     match &directive.key {
         DirectiveKey::Mut => Err(syn::Error::new(
             proc_macro2::Span::call_site(),
-            "`mut` does not have a directive path",
+            "directive does not have a path",
         )),
         DirectiveKey::Path(path) => Ok(path),
     }
