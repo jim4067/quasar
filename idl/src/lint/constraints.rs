@@ -62,7 +62,7 @@ pub fn classify_field_type(ty: &syn::Type) -> (FieldClass, Option<String>) {
     let inner_name = extract_inner_type_name(last_seg);
 
     match ident.as_str() {
-        "Account" => {
+        "Account" | "Migration" => {
             let inner = inner_name.clone().unwrap_or_else(|| "Unknown".to_string());
             (
                 FieldClass::Account {
