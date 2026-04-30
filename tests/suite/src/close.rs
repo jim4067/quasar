@@ -136,9 +136,9 @@ fn wrong_authority() {
         ],
     );
     assert!(result.is_err(), "should reject wrong authority");
-    // v3: address verification runs before has_one, so the PDA mismatch
-    // (wrong authority in seeds) is caught first.
-    result.assert_error(ProgramError::InvalidSeeds);
+    // v3: has_one now runs before PDA verification, so HasOneMismatch (3002)
+    // is caught first.
+    result.assert_error(ProgramError::Custom(3002));
 }
 
 #[test]

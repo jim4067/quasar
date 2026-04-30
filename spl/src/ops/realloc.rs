@@ -21,6 +21,7 @@ where
     <F as AccountLoad>::BehaviorTarget: SupportsRealloc + quasar_lang::traits::Space,
 {
     const REQUIRES_MUT: bool = true;
+    const HAS_AFTER_LOAD_MUT: bool = true;
 
     #[inline(always)]
     fn after_load_mut(&self, field: &mut F, ctx: &OpCtx<'_>) -> Result<(), ProgramError> {

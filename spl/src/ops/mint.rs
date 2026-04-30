@@ -28,6 +28,9 @@ pub struct Op<'a> {
 }
 
 impl<'a, F: AsAccountView + HasMintLayout> AccountOp<F> for Op<'a> {
+    const HAS_AFTER_LOAD: bool = true;
+    const HAS_INIT_PARAMS: bool = true;
+
     #[inline(always)]
     fn after_load(&self, field: &F, _ctx: &OpCtx<'_>) -> Result<(), ProgramError> {
         crate::validate::validate_mint(

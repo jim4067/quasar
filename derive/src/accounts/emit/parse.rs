@@ -42,10 +42,52 @@ pub(crate) fn emit_parse_body(
     let op_ctx = OpEmitCtx {
         field_names: semantics.iter().map(|s| s.core.ident.to_string()).collect(),
     };
-    let ctx_init = quote! {
-        let __ctx = quasar_lang::ops::OpCtx::new(unsafe {
-            &*(__program_id as *const quasar_lang::prelude::Address)
+    // Only emit OpCtx when ops/init/lifecycle/realloc actually need it.
+    let needs_ctx = semantics.iter().any(|sem| {
+        !sem.groups.is_empty()
+            || sem.init.is_some()
+            || sem.realloc.is_some()
+            || (sem.core.is_mut && sem.core.kind == FieldKind::Single && has_field_lifecycle(sem))
+    });
+    let rent_field = find_rent_sysvar_field(semantics);
+    let ctx_init = if !needs_ctx {
+        quote! {}
+    } else if let Some(rent_ident) = &rent_field {
+        quote! {
+            let __ctx = quasar_lang::ops::OpCtx::new_with_rent(
+                unsafe { &*(__program_id as *const quasar_lang::prelude::Address) },
+                unsafe {
+                    core::clone::Clone::clone(
+                        <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::from_bytes_unchecked(
+                            #rent_ident.borrow_unchecked()
+                        )
+                    )
+                },
+            );
+        }
+    } else {
+        // No Sysvar<Rent> field. If init/realloc exist, rent will be needed —
+        // fetch from sysvar. Otherwise, rent stays None.
+        let needs_rent = semantics.iter().any(|sem| {
+            sem.init.is_some()
+                || sem.realloc.is_some()
+                || (sem.core.is_mut
+                    && sem.core.kind == FieldKind::Single
+                    && has_field_lifecycle(sem))
         });
+        if needs_rent {
+            quote! {
+                let __ctx = quasar_lang::ops::OpCtx::new_fetch_rent(unsafe {
+                    &*(__program_id as *const quasar_lang::prelude::Address)
+                })?;
+            }
+        } else {
+            quote! {
+                let __ctx = quasar_lang::ops::OpCtx::new(unsafe {
+                    &*(__program_id as *const quasar_lang::prelude::Address)
+                });
+            }
+        }
     };
     let bump_vars = emit_bump_vars(semantics);
 
@@ -151,7 +193,6 @@ fn emit_init_phase(
 
         // before_load for ALL groups on init fields.
         // Args use typed_arg because referenced non-init fields are loaded.
-        // The init field itself (#ident) is still a raw AccountView slot.
         if sem.has_init() {
             for group in &sem.groups {
                 let op_static = emit_op_type_static(group);
@@ -203,29 +244,47 @@ fn emit_init_before_load(
     };
     let idempotent = init.idempotent;
 
-    // Init params: accumulate from ALL groups via apply_init_params.
-    let params_block = quote! {
-        let mut __init_params = <
-            <#ty as quasar_lang::account_load::AccountLoad>::BehaviorTarget
-            as quasar_lang::account_init::AccountInit
-        >::InitParams::default();
+    // Init params: when no groups, use default. When groups exist, construct
+    // default then apply each group's init params. The default() + apply pattern
+    // is needed for multi-group accumulation but works for single-group too.
+    let has_groups = !sem.groups.is_empty();
+    let params_block = if has_groups {
+        quote! {
+            let mut __init_params = <
+                <#ty as quasar_lang::account_load::AccountLoad>::BehaviorTarget
+                as quasar_lang::account_init::AccountInit
+            >::InitParams::default();
+        }
+    } else {
+        // No groups → default params (typically () for plain accounts)
+        quote! {
+            let __init_params = <
+                <#ty as quasar_lang::account_load::AccountLoad>::BehaviorTarget
+                as quasar_lang::account_init::AccountInit
+            >::InitParams::default();
+        }
     };
 
-    // Use typed_arg because non-init fields are loaded at this point.
+    // Gate apply_init_params on HAS_INIT_PARAMS — op struct only
+    // constructed when the group actually contributes init params.
     let (op_locals, contributor_calls): (Vec<_>, Vec<_>) = sem
         .groups
         .iter()
         .enumerate()
         .map(|(i, group)| {
             let op = emit_op_struct(group, typed_arg, op_ctx);
+            let op_static = emit_op_type_static(group);
             let op_live = emit_op_type(group);
             let op_name = format_ident!("__init_op_{}", i);
-            let local = quote! { let #op_name = #op; };
+            let local = quote! {};
             let call = quote! {
-                <#op_live as quasar_lang::ops::AccountOp<#ty>>::apply_init_params(
-                    &#op_name,
-                    &mut __init_params as *mut _ as *mut u8,
-                )?;
+                if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_INIT_PARAMS {
+                    let #op_name = #op;
+                    <#op_live as quasar_lang::ops::AccountOp<#ty>>::apply_init_params(
+                        &#op_name,
+                        &mut __init_params as *mut _ as *mut u8,
+                    )?;
+                }
             };
             (local, call)
         })
@@ -242,7 +301,7 @@ fn emit_init_before_load(
         quasar_lang::ops::AccountOp::<#ty>::before_load(&__init_op, #ident, &__ctx)?;
     };
 
-    let body = quote! {
+    let inner_body = quote! {
             #params_block
             #(#op_locals)*
             #(#contributor_calls)*
@@ -251,33 +310,43 @@ fn emit_init_before_load(
 
     // Build signers from address spec if present (PDA init).
     // AddressVerify ran before this, so __bumps_<ident> is populated.
-    if sem.address.is_some() {
+    let body = if sem.address.is_some() {
         let bump_var = format_ident!("__bumps_{}", ident);
         let addr_var = format_ident!("__addr_{}", ident);
-        Ok(quote! {
-            {
-                let __bump_ref: &[u8] = &[#bump_var];
-                quasar_lang::address::AddressVerify::with_signer_seeds(
-                    &#addr_var,
-                    __bump_ref,
-                    |__maybe_signer| -> Result<(), quasar_lang::prelude::ProgramError> {
-                        let __signers = match &__maybe_signer {
-                            Some(__signer) => core::slice::from_ref(__signer),
-                            None => &[] as &[quasar_lang::cpi::Signer<'_, '_>],
-                        };
-                        #body
-                        Ok(())
-                    },
-                )?;
-            }
-        })
+        quote! {
+            let __bump_ref: &[u8] = &[#bump_var];
+            quasar_lang::address::AddressVerify::with_signer_seeds(
+                &#addr_var,
+                __bump_ref,
+                |__maybe_signer| -> Result<(), quasar_lang::prelude::ProgramError> {
+                    let __signers = match &__maybe_signer {
+                        Some(__signer) => core::slice::from_ref(__signer),
+                        None => &[] as &[quasar_lang::cpi::Signer<'_, '_>],
+                    };
+                    #inner_body
+                    Ok(())
+                },
+            )?;
+        }
     } else {
+        quote! {
+            let __signers: &[quasar_lang::cpi::Signer<'_, '_>] = &[];
+            #inner_body
+        }
+    };
+
+    // For idempotent init, gate the entire block on is_system_program.
+    // When the account already exists, skip all init param construction,
+    // op struct building, and before_load — pure zero overhead on the hot path.
+    // Non-idempotent init must always run (needs the error on existing accounts).
+    if idempotent {
         Ok(quote! {
-            {
-                let __signers: &[quasar_lang::cpi::Signer<'_, '_>] = &[];
+            if quasar_lang::is_system_program(#ident.owner()) {
                 #body
             }
         })
+    } else {
+        Ok(quote! { { #body } })
     }
 }
 
@@ -350,34 +419,33 @@ fn emit_phase3(semantics: &[FieldSemantics], op_ctx: &OpEmitCtx) -> Vec<proc_mac
         let ty = &sem.core.effective_ty;
         let is_optional = sem.core.optional;
 
-        // Phase 3a: after_load for ALL groups
+        // Phase 3a: after_load — gated on HAS_AFTER_LOAD.
+        // Op struct only constructed when the gate is true.
         for group in &sem.groups {
-            let op = emit_op_struct(group, typed_arg, op_ctx);
+            let op_static = emit_op_type_static(group);
             let op_live = emit_op_type(group);
+            let op = emit_op_struct(group, typed_arg, op_ctx);
             let call = quote! {
-                <#op_live as quasar_lang::ops::AccountOp<
-                    #ty,
-                >>::after_load(&#op, &#ident, &__ctx)?;
+                if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_AFTER_LOAD {
+                    <#op_live as quasar_lang::ops::AccountOp<
+                        #ty,
+                    >>::after_load(&#op, &#ident, &__ctx)?;
+                }
             };
             stmts.push(wrap_optional(is_optional, ident, &call, false));
         }
 
-        // Phase 3b: after_load_mut on owned mut locals (ALL groups)
+        // Phase 3b: after_load_mut — gated on HAS_AFTER_LOAD_MUT.
         if sem.core.is_mut && sem.core.kind == FieldKind::Single {
             for group in &sem.groups {
-                let op = emit_op_struct(group, typed_arg, op_ctx);
                 let op_static = emit_op_type_static(group);
                 let op_live = emit_op_type(group);
-                // Gate on REQUIRES_MUT at compile time
+                let op = emit_op_struct(group, typed_arg, op_ctx);
                 let call = quote! {
-                    {
-                        const __REQ: bool =
-                            <#op_static as quasar_lang::ops::AccountOp<#ty>>::REQUIRES_MUT;
-                        if __REQ {
-                            <#op_live as quasar_lang::ops::AccountOp<
-                                #ty,
-                            >>::after_load_mut(&#op, &mut #ident, &__ctx)?;
-                        }
+                    if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_AFTER_LOAD_MUT {
+                        <#op_live as quasar_lang::ops::AccountOp<
+                            #ty,
+                        >>::after_load_mut(&#op, &mut #ident, &__ctx)?;
                     }
                 };
                 stmts.push(wrap_optional(is_optional, ident, &call, true));
@@ -711,9 +779,36 @@ pub(crate) fn emit_bump_struct_def(
     }
 }
 
-/// Returns true for account types with owner + discriminator validation (Account<T>,
-/// InterfaceAccount<T>, Migration<From,To>). These are safe for verify_existing
-/// because the program created them with the canonical bump.
+/// Find a field with type `Sysvar<Rent>` in the accounts struct.
+fn find_rent_sysvar_field(semantics: &[FieldSemantics]) -> Option<syn::Ident> {
+    for sem in semantics {
+        if let syn::Type::Path(tp) = &sem.core.effective_ty {
+            if let Some(last) = tp.path.segments.last() {
+                if last.ident == "Sysvar" {
+                    if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                        for arg in &args.args {
+                            if let syn::GenericArgument::Type(syn::Type::Path(inner)) = arg {
+                                if inner
+                                    .path
+                                    .segments
+                                    .last()
+                                    .is_some_and(|s| s.ident == "Rent")
+                                {
+                                    return Some(sem.core.ident.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Returns true for account types with owner + discriminator validation
+/// (Account<T>, InterfaceAccount<T>, Migration<From,To>). These are safe for
+/// verify_existing because the program created them with the canonical bump.
 fn is_validated_account_type(ty: &syn::Type) -> bool {
     use crate::helpers::extract_generic_inner_type;
     extract_generic_inner_type(ty, "Account").is_some()

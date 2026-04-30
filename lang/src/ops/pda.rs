@@ -17,6 +17,8 @@ pub struct Check<'a> {
 }
 
 impl<'a, F: AsAccountView> AccountOp<F> for Check<'a> {
+    const HAS_AFTER_LOAD: bool = true;
+
     #[inline(always)]
     fn after_load(&self, field: &F, _ctx: &OpCtx<'_>) -> Result<(), ProgramError> {
         if !crate::keys_eq(field.to_account_view().address(), self.expected) {

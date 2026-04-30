@@ -23,11 +23,10 @@ use {solana_account_view::AccountView, solana_program_error::ProgramError};
 
 /// Runtime context shared across all op calls within a single parse invocation.
 ///
-/// Carries `program_id` (always available) and lazily-fetched `Rent` (only
-/// fetched when an op actually needs it).
+/// Carries `program_id` (always available) and optionally pre-populated `Rent`.
 pub struct OpCtx<'a> {
     pub program_id: &'a solana_address::Address,
-    rent: core::cell::OnceCell<crate::sysvars::rent::Rent>,
+    rent: Option<crate::sysvars::rent::Rent>,
 }
 
 impl<'a> OpCtx<'a> {
@@ -35,20 +34,41 @@ impl<'a> OpCtx<'a> {
     pub fn new(program_id: &'a solana_address::Address) -> Self {
         Self {
             program_id,
-            rent: core::cell::OnceCell::new(),
+            rent: None,
         }
     }
 
-    /// Get rent, fetching from sysvar on first access.
+    /// Create with pre-populated rent (avoids syscall when Sysvar<Rent> is
+    /// available).
+    #[inline(always)]
+    pub fn new_with_rent(
+        program_id: &'a solana_address::Address,
+        rent: crate::sysvars::rent::Rent,
+    ) -> Self {
+        Self {
+            program_id,
+            rent: Some(rent),
+        }
+    }
+
+    /// Create with rent fetched from sysvar (when no Sysvar<Rent> field
+    /// is available).
+    #[inline(always)]
+    pub fn new_fetch_rent(program_id: &'a solana_address::Address) -> Result<Self, ProgramError> {
+        let rent = <crate::sysvars::rent::Rent as crate::sysvars::Sysvar>::get()?;
+        Ok(Self {
+            program_id,
+            rent: Some(rent),
+        })
+    }
+
+    /// Get rent. Always populated at construction time.
     #[inline(always)]
     pub fn rent(&self) -> Result<&crate::sysvars::rent::Rent, ProgramError> {
-        if let Some(r) = self.rent.get() {
-            return Ok(r);
+        match self.rent {
+            Some(ref r) => Ok(r),
+            None => unsafe { core::hint::unreachable_unchecked() },
         }
-        let r = <crate::sysvars::rent::Rent as crate::sysvars::Sysvar>::get()?;
-        // Ignore set failure — race would mean another path already populated.
-        let _ = self.rent.set(r);
-        Ok(self.rent.get().unwrap())
     }
 }
 
@@ -73,8 +93,17 @@ pub trait AccountOp<Field> {
     /// Op has meaningful before_load behavior (Phase 1, raw slot).
     const HAS_BEFORE_LOAD: bool = false;
 
+    /// Op has meaningful after_load behavior (Phase 3a, shared ref).
+    const HAS_AFTER_LOAD: bool = false;
+
+    /// Op has meaningful after_load_mut behavior (Phase 3b, mut ref).
+    const HAS_AFTER_LOAD_MUT: bool = false;
+
     /// Op has meaningful exit behavior (Phase 4, epilogue).
     const HAS_EXIT: bool = false;
+
+    /// Op contributes init params.
+    const HAS_INIT_PARAMS: bool = false;
 
     /// Phase 1: before typed construction. Raw `AccountView` slot.
     #[inline(always)]

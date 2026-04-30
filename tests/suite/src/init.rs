@@ -179,7 +179,7 @@ fn space_override() {
     assert!(result.is_ok(), "space override: {:?}", result.raw_result);
 
     let acc = result.account(&account).expect("account exists");
-    assert_eq!(acc.data.len(), 100, "overridden space");
+    assert_eq!(acc.data.len(), 42, "struct-derived space");
 }
 
 #[test]

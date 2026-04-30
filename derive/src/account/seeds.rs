@@ -4,7 +4,7 @@ use {
     quote::{format_ident, quote},
     syn::{
         parse::{Parse, ParseStream},
-        Expr, ExprLit, Ident, Lit, Token,
+        Expr, ExprLit, Ident, Lit, LitByteStr, Token,
     },
 };
 
@@ -18,27 +18,24 @@ enum SeedType {
 }
 
 impl SeedType {
-    fn byte_len(&self) -> usize {
+    /// The field storage type in SeedSet.
+    /// Address: borrowed reference (zero-copy).
+    /// Scalars: owned byte array (needs backing storage for to_le_bytes).
+    fn field_type(&self) -> proc_macro2::TokenStream {
         match self {
-            SeedType::Address => 32,
-            SeedType::U8 => 1,
-            SeedType::U16 => 2,
-            SeedType::U32 => 4,
-            SeedType::U64 => 8,
+            SeedType::Address => quote! { &'__quasar_seed quasar_lang::prelude::Address },
+            SeedType::U8 => quote! { [u8; 1] },
+            SeedType::U16 => quote! { [u8; 2] },
+            SeedType::U32 => quote! { [u8; 4] },
+            SeedType::U64 => quote! { [u8; 8] },
         }
     }
 
-    /// The field storage type: `[u8; N]`.
-    fn field_type(&self) -> proc_macro2::TokenStream {
-        let n = self.byte_len();
-        quote! { [u8; #n] }
-    }
-
-    /// The constructor parameter type (by-ref for Address, by-value for
-    /// scalars).
+    /// The constructor parameter type. Address uses the generated seed lifetime
+    /// to tie the borrow to the SeedSet.
     fn param_type(&self) -> proc_macro2::TokenStream {
         match self {
-            SeedType::Address => quote! { &quasar_lang::prelude::Address },
+            SeedType::Address => quote! { &'__quasar_seed quasar_lang::prelude::Address },
             SeedType::U8 => quote! { u8 },
             SeedType::U16 => quote! { u16 },
             SeedType::U32 => quote! { u32 },
@@ -46,12 +43,38 @@ impl SeedType {
         }
     }
 
-    /// Expression to convert the parameter into `[u8; N]`.
-    fn to_bytes_expr(&self, param: &Ident) -> proc_macro2::TokenStream {
+    /// Expression to store the parameter in the SeedSet field.
+    /// Address: borrow directly (zero-copy).
+    /// Scalars: convert to le bytes (needs owned storage).
+    fn to_stored_expr(&self, param: &Ident) -> proc_macro2::TokenStream {
         match self {
-            SeedType::Address => quote! { #param.to_bytes() },
+            SeedType::Address => quote! { #param },
             SeedType::U8 => quote! { [#param] },
             _ => quote! { #param.to_le_bytes() },
+        }
+    }
+
+    /// Expression for as_slices() — how to get a `&[u8]` from the field.
+    /// Address: `.as_ref()` on the `&Address`.
+    /// Scalars: `&self._field` on the owned `[u8; N]`.
+    fn slice_expr(&self, field_name: &Ident, prefix: &str) -> proc_macro2::TokenStream {
+        match self {
+            SeedType::Address => {
+                let access = match prefix {
+                    "" => quote! { self.#field_name },
+                    "inner" => quote! { self.inner.#field_name },
+                    _ => unreachable!(),
+                };
+                quote! { #access.as_ref() }
+            }
+            _ => {
+                let access = match prefix {
+                    "" => quote! { self.#field_name },
+                    "inner" => quote! { self.inner.#field_name },
+                    _ => unreachable!(),
+                };
+                quote! { &#access }
+            }
         }
     }
 }
@@ -151,7 +174,7 @@ pub fn generate_seeds_impl(
     seeds_attr: &SeedsAttr,
 ) -> proc_macro2::TokenStream {
     let prefix_bytes = &seeds_attr.prefix;
-    let prefix_len = prefix_bytes.len();
+    let prefix_lit = LitByteStr::new(prefix_bytes, proc_macro2::Span::call_site());
     let dynamic_count = seeds_attr.dynamic_seed_count();
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -170,9 +193,8 @@ pub fn generate_seeds_impl(
     let n_slices = 1 + seeds_attr.params.len();
     let n_slices_with_bump = n_slices + 1;
 
-    // Build struct fields for SeedSet.
-    let prefix_field_type = quote! { [u8; #prefix_len] };
-
+    // SeedSet fields: Address params borrow (&'a Address), scalars own [u8; N].
+    // Prefix is NOT stored — as_slices() references the static SEED_PREFIX.
     let param_field_names: Vec<_> = seeds_attr
         .params
         .iter()
@@ -194,23 +216,21 @@ pub fn generate_seeds_impl(
     let param_conversions: Vec<_> = seeds_attr
         .params
         .iter()
-        .map(|p| p.ty.to_bytes_expr(&p.name))
+        .map(|p| p.ty.to_stored_expr(&p.name))
         .collect();
 
-    // as_slices() body for SeedSet (without bump).
+    // as_slices() — prefix from static literal, params from fields.
     let slice_exprs: Vec<_> = {
-        let mut v = vec![quote! { &self._prefix }];
-        for field_name in &param_field_names {
-            v.push(quote! { &self.#field_name });
+        let mut v = vec![quote! { #prefix_lit }];
+        for (i, field_name) in param_field_names.iter().enumerate() {
+            v.push(seeds_attr.params[i].ty.slice_expr(field_name, ""));
         }
         v
     };
-
-    // as_slices() body for SeedSetWithBump (with bump).
     let slice_exprs_bump: Vec<_> = {
-        let mut v = vec![quote! { &self.inner._prefix }];
-        for field_name in &param_field_names {
-            v.push(quote! { &self.inner.#field_name });
+        let mut v = vec![quote! { #prefix_lit }];
+        for (i, field_name) in param_field_names.iter().enumerate() {
+            v.push(seeds_attr.params[i].ty.slice_expr(field_name, "inner"));
         }
         v.push(quote! { &self._bump });
         v
@@ -224,51 +244,66 @@ pub fn generate_seeds_impl(
         .map(|expr| quote! { quasar_lang::cpi::Seed::from(#expr) })
         .collect();
 
+    // When no Address params exist, the seed lifetime is unused — add
+    // PhantomData to anchor it.
+    let has_address_param = seeds_attr
+        .params
+        .iter()
+        .any(|p| matches!(p.ty, SeedType::Address));
+    let phantom_field = if has_address_param {
+        quote! {}
+    } else {
+        quote! { _lt: core::marker::PhantomData<&'__quasar_seed ()>, }
+    };
+    let phantom_init = if has_address_param {
+        quote! {}
+    } else {
+        quote! { _lt: core::marker::PhantomData, }
+    };
+
     quote! {
         #has_seeds_impl
 
-        /// Owned seed storage (without bump).
-        pub struct #seed_set {
-            _prefix: #prefix_field_type,
+        /// Zero-copy seed storage (without bump).
+        pub struct #seed_set<'__quasar_seed> {
             #( #param_field_names: #param_field_types, )*
+            #phantom_field
         }
 
         /// Seed set with explicit bump appended.
-        pub struct #seed_set_bump {
-            inner: #seed_set,
+        pub struct #seed_set_bump<'__quasar_seed> {
+            inner: #seed_set<'__quasar_seed>,
             _bump: [u8; 1],
         }
 
         impl #impl_generics #name #ty_generics #where_clause {
-            /// Build a seed set (bump will be found automatically during verification).
             #[inline(always)]
-            pub fn seeds(#( #param_names: #param_types ),*) -> #seed_set {
+            pub fn seeds<'__quasar_seed>(
+                #( #param_names: #param_types ),*
+            ) -> #seed_set<'__quasar_seed> {
                 #seed_set {
-                    _prefix: [#(#prefix_bytes),*],
                     #( #param_field_names: #param_conversions, )*
+                    #phantom_init
                 }
             }
         }
 
-        impl #seed_set {
-            /// Append an explicit bump byte.
+        impl<'__quasar_seed> #seed_set<'__quasar_seed> {
             #[inline(always)]
-            pub fn with_bump(self, bump: u8) -> #seed_set_bump {
+            pub fn with_bump(self, bump: u8) -> #seed_set_bump<'__quasar_seed> {
                 #seed_set_bump {
                     inner: self,
                     _bump: [bump],
                 }
             }
 
-            /// Borrow as seed slices (without bump).
             #[inline(always)]
             pub fn as_slices(&self) -> [&[u8]; #n_slices] {
                 [ #( #slice_exprs ),* ]
             }
         }
 
-        impl #seed_set_bump {
-            /// Borrow as seed slices (with bump).
+        impl<'__quasar_seed> #seed_set_bump<'__quasar_seed> {
             #[inline(always)]
             pub fn as_slices(&self) -> [&[u8]; #n_slices_with_bump] {
                 [ #( #slice_exprs_bump ),* ]
@@ -276,7 +311,7 @@ pub fn generate_seeds_impl(
         }
 
         // AddressVerify: auto-find bump (full derivation, safe for init).
-        impl quasar_lang::address::AddressVerify for #seed_set {
+        impl<'__quasar_seed> quasar_lang::address::AddressVerify for #seed_set<'__quasar_seed> {
             #[inline(always)]
             fn verify(
                 &self,
@@ -326,7 +361,7 @@ pub fn generate_seeds_impl(
         }
 
         // AddressVerify: explicit bump (faster, no search).
-        impl quasar_lang::address::AddressVerify for #seed_set_bump {
+        impl<'__quasar_seed> quasar_lang::address::AddressVerify for #seed_set_bump<'__quasar_seed> {
             #[inline(always)]
             fn verify(
                 &self,

@@ -37,27 +37,24 @@ enum SeedType {
 }
 
 impl SeedType {
-    fn byte_len(&self) -> usize {
+    /// The field storage type in SeedSet.
+    /// Address: borrowed reference (zero-copy).
+    /// Scalars: owned byte array (needs backing storage for to_le_bytes).
+    fn field_type(&self) -> TokenStream {
         match self {
-            SeedType::Address => 32,
-            SeedType::U8 => 1,
-            SeedType::U16 => 2,
-            SeedType::U32 => 4,
-            SeedType::U64 => 8,
+            SeedType::Address => quote! { &'__quasar_seed quasar_lang::prelude::Address },
+            SeedType::U8 => quote! { [u8; 1] },
+            SeedType::U16 => quote! { [u8; 2] },
+            SeedType::U32 => quote! { [u8; 4] },
+            SeedType::U64 => quote! { [u8; 8] },
         }
     }
 
-    /// The field storage type: `[u8; N]`.
-    fn field_type(&self) -> TokenStream {
-        let n = self.byte_len();
-        quote! { [u8; #n] }
-    }
-
-    /// The constructor parameter type (by-ref for Address, by-value for
-    /// scalars).
+    /// The constructor parameter type. Address uses the generated seed lifetime
+    /// to tie the borrow to the SeedSet.
     fn param_type(&self) -> TokenStream {
         match self {
-            SeedType::Address => quote! { &quasar_lang::prelude::Address },
+            SeedType::Address => quote! { &'__quasar_seed quasar_lang::prelude::Address },
             SeedType::U8 => quote! { u8 },
             SeedType::U16 => quote! { u16 },
             SeedType::U32 => quote! { u32 },
@@ -65,12 +62,25 @@ impl SeedType {
         }
     }
 
-    /// Expression to convert the parameter into `[u8; N]`.
-    fn to_bytes_expr(&self, param: &Ident) -> TokenStream {
+    /// Expression to store the parameter in the SeedSet field.
+    fn to_stored_expr(&self, param: &Ident) -> TokenStream {
         match self {
-            SeedType::Address => quote! { #param.to_bytes() },
+            SeedType::Address => quote! { #param },
             SeedType::U8 => quote! { [#param] },
             _ => quote! { #param.to_le_bytes() },
+        }
+    }
+
+    /// Expression for as_slices() — how to get a `&[u8]` from the field.
+    fn slice_expr(&self, field_name: &Ident, prefix: &str) -> TokenStream {
+        let access = match prefix {
+            "" => quote! { self.#field_name },
+            "inner" => quote! { self.inner.#field_name },
+            _ => unreachable!(),
+        };
+        match self {
+            SeedType::Address => quote! { #access.as_ref() },
+            _ => quote! { &#access },
         }
     }
 }
@@ -152,7 +162,6 @@ fn derive_seeds_inner(input: TokenStream) -> Result<TokenStream> {
 
     let parsed: SeedsAttr = seeds_attr.parse_args()?;
     let prefix = &parsed.prefix;
-    let prefix_len = prefix.value().len();
     let struct_name = &input.ident;
     let seed_set = format_ident!("{}SeedSet", struct_name);
     let seed_set_bump = format_ident!("{}SeedSetWithBump", struct_name);
@@ -160,9 +169,6 @@ fn derive_seeds_inner(input: TokenStream) -> Result<TokenStream> {
     // Total number of seed slices (prefix + params).
     let n_slices = 1 + parsed.params.len();
     let n_slices_with_bump = n_slices + 1;
-
-    // Build struct fields for SeedSet.
-    let prefix_field_type = quote! { [u8; #prefix_len] };
 
     let param_field_names: Vec<_> = parsed
         .params
@@ -177,23 +183,21 @@ fn derive_seeds_inner(input: TokenStream) -> Result<TokenStream> {
     let param_conversions: Vec<_> = parsed
         .params
         .iter()
-        .map(|p| p.ty.to_bytes_expr(&p.name))
+        .map(|p| p.ty.to_stored_expr(&p.name))
         .collect();
 
-    // as_slices() body for SeedSet (without bump).
+    // as_slices() — prefix from static literal, params from fields.
     let slice_exprs: Vec<_> = {
-        let mut v = vec![quote! { &self._prefix }];
-        for name in &param_field_names {
-            v.push(quote! { &self.#name });
+        let mut v = vec![quote! { #prefix }];
+        for (i, name) in param_field_names.iter().enumerate() {
+            v.push(parsed.params[i].ty.slice_expr(name, ""));
         }
         v
     };
-
-    // as_slices() body for SeedSetWithBump (with bump).
     let slice_exprs_bump: Vec<_> = {
-        let mut v = vec![quote! { &self.inner._prefix }];
-        for name in &param_field_names {
-            v.push(quote! { &self.inner.#name });
+        let mut v = vec![quote! { #prefix }];
+        for (i, name) in param_field_names.iter().enumerate() {
+            v.push(parsed.params[i].ty.slice_expr(name, "inner"));
         }
         v.push(quote! { &self._bump });
         v
@@ -209,49 +213,62 @@ fn derive_seeds_inner(input: TokenStream) -> Result<TokenStream> {
 
     let vis = &input.vis;
 
+    let has_address_param = parsed
+        .params
+        .iter()
+        .any(|p| matches!(p.ty, SeedType::Address));
+    let phantom_field = if has_address_param {
+        quote! {}
+    } else {
+        quote! { _lt: core::marker::PhantomData<&'__quasar_seed ()>, }
+    };
+    let phantom_init = if has_address_param {
+        quote! {}
+    } else {
+        quote! { _lt: core::marker::PhantomData, }
+    };
+
     Ok(quote! {
-        /// Owned seed storage (without bump).
-        #vis struct #seed_set {
-            _prefix: #prefix_field_type,
+        /// Zero-copy seed storage (without bump).
+        #vis struct #seed_set<'__quasar_seed> {
             #( #param_field_names: #param_field_types, )*
+            #phantom_field
         }
 
         /// Seed set with explicit bump appended.
-        #vis struct #seed_set_bump {
-            inner: #seed_set,
+        #vis struct #seed_set_bump<'__quasar_seed> {
+            inner: #seed_set<'__quasar_seed>,
             _bump: [u8; 1],
         }
 
         impl #struct_name {
-            /// Build a seed set (bump will be found automatically during verification).
             #[inline(always)]
-            #vis fn seeds(#( #param_names: #param_types ),*) -> #seed_set {
+            #vis fn seeds<'__quasar_seed>(
+                #( #param_names: #param_types ),*
+            ) -> #seed_set<'__quasar_seed> {
                 #seed_set {
-                    _prefix: *#prefix,
                     #( #param_field_names: #param_conversions, )*
+                    #phantom_init
                 }
             }
         }
 
-        impl #seed_set {
-            /// Append an explicit bump byte.
+        impl<'__quasar_seed> #seed_set<'__quasar_seed> {
             #[inline(always)]
-            pub fn with_bump(self, bump: u8) -> #seed_set_bump {
+            pub fn with_bump(self, bump: u8) -> #seed_set_bump<'__quasar_seed> {
                 #seed_set_bump {
                     inner: self,
                     _bump: [bump],
                 }
             }
 
-            /// Borrow as seed slices (without bump).
             #[inline(always)]
             pub fn as_slices(&self) -> [&[u8]; #n_slices] {
                 [ #( #slice_exprs ),* ]
             }
         }
 
-        impl #seed_set_bump {
-            /// Borrow as seed slices (with bump).
+        impl<'__quasar_seed> #seed_set_bump<'__quasar_seed> {
             #[inline(always)]
             pub fn as_slices(&self) -> [&[u8]; #n_slices_with_bump] {
                 [ #( #slice_exprs_bump ),* ]
@@ -259,7 +276,7 @@ fn derive_seeds_inner(input: TokenStream) -> Result<TokenStream> {
         }
 
         // AddressVerify: auto-find bump (full derivation, safe for init).
-        impl quasar_lang::address::AddressVerify for #seed_set {
+        impl<'__quasar_seed> quasar_lang::address::AddressVerify for #seed_set<'__quasar_seed> {
             #[inline(always)]
             fn verify(
                 &self,
@@ -311,7 +328,7 @@ fn derive_seeds_inner(input: TokenStream) -> Result<TokenStream> {
         }
 
         // AddressVerify: explicit bump (faster, no search).
-        impl quasar_lang::address::AddressVerify for #seed_set_bump {
+        impl<'__quasar_seed> quasar_lang::address::AddressVerify for #seed_set_bump<'__quasar_seed> {
             #[inline(always)]
             fn verify(
                 &self,
