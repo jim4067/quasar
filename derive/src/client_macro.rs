@@ -113,7 +113,8 @@ fn describe_accounts(
             signer: matches!(sem.core.shape, crate::accounts::resolve::FieldShape::Signer)
                 || sem.client_requires_signer(),
             pda: sem.pda.as_ref().map(describe_pda),
-            address: known_address(&sem.core.shape).map(str::to_owned),
+            address: known_address(sem).map(str::to_owned),
+            migration: None,
         })
         .collect()
 }
@@ -159,14 +160,13 @@ fn join_path(root: &syn::Ident, path: &[syn::Ident]) -> String {
     joined
 }
 
-fn known_address(shape: &crate::accounts::resolve::FieldShape) -> Option<&'static str> {
-    match shape {
-        crate::accounts::resolve::FieldShape::Program { .. } => {
-            let inner = shape.inner_base_name().map(|name| name.to_string());
+fn known_address(sem: &crate::accounts::resolve::FieldSemantics) -> Option<&'static str> {
+    let inner = sem.core.inner_name.as_ref().map(|name| name.to_string());
+    match sem.core.shape {
+        crate::accounts::resolve::FieldShape::Program => {
             known_address_for_type("Program", inner.as_deref())
         }
-        crate::accounts::resolve::FieldShape::Sysvar { .. } => {
-            let inner = shape.inner_base_name().map(|name| name.to_string());
+        crate::accounts::resolve::FieldShape::Sysvar => {
             known_address_for_type("Sysvar", inner.as_deref())
         }
         _ => None,

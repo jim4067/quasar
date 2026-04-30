@@ -1,59 +1,17 @@
 use syn::{Expr, Ident, Type};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FieldShape {
-    Account { inner_ty: Type },
-    InterfaceAccount { inner_ty: Type },
-    Program { inner_ty: Type },
-    Interface { inner_ty: Type },
-    Sysvar { inner_ty: Type },
+    Account,
+    Migration,
+    InterfaceAccount,
+    Program,
+    Interface,
+    Sysvar,
     Signer,
     SystemAccount,
     Composite,
     Other,
-}
-
-impl FieldShape {
-    pub fn inner_base_name(&self) -> Option<&syn::Ident> {
-        let inner = match self {
-            Self::Account { inner_ty }
-            | Self::InterfaceAccount { inner_ty }
-            | Self::Program { inner_ty }
-            | Self::Interface { inner_ty }
-            | Self::Sysvar { inner_ty } => inner_ty,
-            Self::Signer | Self::SystemAccount | Self::Composite | Self::Other => return None,
-        };
-        match inner {
-            Type::Path(tp) => tp.path.segments.last().map(|s| &s.ident),
-            _ => None,
-        }
-    }
-
-    pub fn inner_name_matches(&self, names: &[&str]) -> bool {
-        self.inner_base_name()
-            .is_some_and(|ident| names.iter().any(|name| ident == name))
-    }
-
-    pub fn is_token_account(&self) -> bool {
-        self.inner_name_matches(&["Token", "Token2022"])
-    }
-
-    pub fn is_mint(&self) -> bool {
-        self.inner_name_matches(&["Mint", "Mint2022"])
-    }
-
-    pub fn is_token_or_mint(&self) -> bool {
-        self.inner_name_matches(&["Token", "Token2022", "Mint", "Mint2022"])
-    }
-
-    /// Whether an existing account of this shape can use the PDA bump fast
-    /// path once wrapper validation has already run.
-    pub fn supports_existing_pda_fast_path(&self) -> bool {
-        match self {
-            Self::Account { .. } => true,
-            Self::InterfaceAccount { .. } => self.is_token_or_mint(),
-            _ => false,
-        }
-    }
 }
 
 pub(crate) struct FieldCore {
@@ -61,6 +19,17 @@ pub(crate) struct FieldCore {
     pub field: syn::Field,
     pub effective_ty: Type,
     pub shape: FieldShape,
+    /// Inner/source type for account-bearing wrappers.
+    ///
+    /// For `Migration<From, To>`, this is `From`.
+    pub inner_ty: Option<Type>,
+    /// Base name of the generic inner type for any generic wrapper.
+    pub inner_name: Option<Ident>,
+    pub is_token_account: bool,
+    pub is_mint: bool,
+    pub is_token_or_mint: bool,
+    /// Existing-account PDA bump fast path is valid after wrapper validation.
+    pub supports_existing_pda_fast_path: bool,
     pub optional: bool,
     pub dynamic: bool,
     pub is_mut: bool,
@@ -70,6 +39,7 @@ pub(crate) struct FieldCore {
 pub(crate) struct FieldSemantics {
     pub core: FieldCore,
     pub support: FieldSupport,
+    pub params: FieldParams,
     pub init: Option<InitConstraint>,
     pub pda: Option<PdaConstraint>,
     pub token: Option<TokenConstraint>,
@@ -86,7 +56,9 @@ impl FieldSemantics {
     }
 
     pub fn needs_rent(&self) -> bool {
-        self.init.is_some() || self.realloc.is_some()
+        self.init.is_some()
+            || self.realloc.is_some()
+            || matches!(self.core.shape, FieldShape::Migration)
     }
 
     pub fn has_realloc(&self) -> bool {
@@ -98,7 +70,11 @@ impl FieldSemantics {
     }
 
     pub fn is_writable(&self) -> bool {
-        self.core.is_mut || self.has_init() || self.has_lifecycle() || self.has_realloc()
+        self.core.is_mut
+            || self.has_init()
+            || self.has_lifecycle()
+            || self.has_realloc()
+            || matches!(self.core.shape, FieldShape::Migration)
     }
 
     pub fn client_requires_signer(&self) -> bool {
@@ -210,6 +186,17 @@ pub(crate) struct MintConstraint {
     pub authority: Ident,
     pub freeze_authority: Option<Ident>,
     pub token_program: Option<Ident>,
+}
+
+pub(crate) struct ParamAssign {
+    pub key: syn::Ident,
+    pub value: syn::Expr,
+}
+
+#[derive(Default)]
+pub(crate) struct FieldParams {
+    pub validate: Vec<ParamAssign>,
+    pub init: Vec<ParamAssign>,
 }
 
 pub(crate) struct UserCheckConstraint {

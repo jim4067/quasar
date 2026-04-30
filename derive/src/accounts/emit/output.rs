@@ -14,6 +14,7 @@ pub(crate) struct AccountsOutput<'a> {
     pub parse_body: proc_macro2::TokenStream,
     pub bumps_struct: proc_macro2::TokenStream,
     pub epilogue_method: proc_macro2::TokenStream,
+    pub has_epilogue: bool,
     pub seeds_methods: proc_macro2::TokenStream,
     pub client_macro: proc_macro2::TokenStream,
     pub ix_arg_extraction: proc_macro2::TokenStream,
@@ -34,6 +35,7 @@ pub(crate) fn emit_accounts_output(output: AccountsOutput<'_>) -> proc_macro2::T
         parse_body,
         bumps_struct,
         epilogue_method,
+        has_epilogue,
         seeds_methods,
         client_macro,
         ix_arg_extraction,
@@ -53,9 +55,26 @@ pub(crate) fn emit_accounts_output(output: AccountsOutput<'_>) -> proc_macro2::T
         }
     };
 
+    let has_epilogue_const = if has_epilogue {
+        quote! { const HAS_EPILOGUE: bool = true; }
+    } else {
+        quote! {}
+    };
+
+    // Always emit HAS_VALIDATE = true. The instruction macro always calls
+    // ctx.accounts.validate(). On concrete types, inherent methods shadow
+    // trait methods — so if the user writes an inherent validate(), it runs.
+    // If they don't, the ParseAccounts default (Ok(())) runs and LLVM elides it.
+    //
+    // #[accounts(validate)] is accepted but optional — it serves as
+    // documentation/intent signal. The validate call happens unconditionally.
+    let has_validate_const = quote! { const HAS_VALIDATE: bool = true; };
+
     let parse_accounts_impl = quote! {
         impl #parse_impl_generics ParseAccounts<'input> for #name #ty_generics #parse_where_clause {
             type Bumps = #bumps_name;
+            #has_epilogue_const
+            #has_validate_const
 
             #[inline(always)]
             fn parse(accounts: &'input mut [AccountView], program_id: &Address) -> Result<(Self, Self::Bumps), ProgramError> {

@@ -3,9 +3,9 @@ use {
         super::syntax::{classify_seed, lower_bump, parse_field_attrs, AccountDirective},
         rules::validate_semantics,
         support::resolve_supports,
-        FieldCore, FieldSemantics, FieldShape, FieldSupport, InitConstraint, InitMode,
-        LifecycleConstraint, MintConstraint, PdaConstraint, PdaSource, ReallocConstraint, SeedNode,
-        TokenConstraint, UserCheckConstraint, UserCheckKind,
+        FieldCore, FieldParams, FieldSemantics, FieldShape, FieldSupport, InitConstraint, InitMode,
+        LifecycleConstraint, MintConstraint, ParamAssign, PdaConstraint, PdaSource,
+        ReallocConstraint, SeedNode, TokenConstraint, UserCheckConstraint, UserCheckKind,
     },
     crate::helpers::{extract_generic_inner_type, is_composite_type},
     syn::{Expr, Ident, Type},
@@ -42,6 +42,7 @@ pub(super) fn lower_semantics(
             let mut sem = FieldSemantics {
                 core,
                 support: FieldSupport::default(),
+                params: FieldParams::default(),
                 init: None,
                 pda: None,
                 token: None,
@@ -80,8 +81,24 @@ fn lower_core(field: &syn::Field, directives: &[AccountDirective]) -> FieldCore 
         other => other.clone(),
     };
 
-    let shape = classify_shape(&effective_ty, ty);
-    let dynamic = detect_dynamic(&shape);
+    let (shape, raw_inner_ty) = classify_shape(&effective_ty, ty);
+    let inner_name = raw_inner_ty.as_ref().and_then(type_base_name).cloned();
+    let is_token_account = inner_name_matches(&inner_name, &["Token", "Token2022"]);
+    let is_mint = inner_name_matches(&inner_name, &["Mint", "Mint2022"]);
+    let is_token_or_mint = is_token_account || is_mint;
+    let supports_existing_pda_fast_path = matches!(shape, FieldShape::Account)
+        || (matches!(shape, FieldShape::InterfaceAccount) && is_token_or_mint);
+    let inner_ty = if matches!(
+        shape,
+        FieldShape::Account | FieldShape::InterfaceAccount | FieldShape::Migration
+    ) {
+        raw_inner_ty
+    } else {
+        None
+    };
+    let dynamic = detect_dynamic(shape, inner_ty.as_ref());
+
+    let is_migration = matches!(shape, FieldShape::Migration);
 
     FieldCore {
         ident: field
@@ -91,53 +108,79 @@ fn lower_core(field: &syn::Field, directives: &[AccountDirective]) -> FieldCore 
         field: field.clone(),
         effective_ty,
         shape,
+        inner_ty,
+        inner_name,
+        is_token_account,
+        is_mint,
+        is_token_or_mint,
+        supports_existing_pda_fast_path,
         optional,
         dynamic,
-        is_mut: directives
-            .iter()
-            .any(|d| matches!(d, AccountDirective::Mut)),
+        // Migration fields are implicitly mutable (realloc + write target).
+        is_mut: is_migration
+            || directives
+                .iter()
+                .any(|d| matches!(d, AccountDirective::Mut)),
         dup: directives
             .iter()
             .any(|d| matches!(d, AccountDirective::Dup)),
     }
 }
 
-fn classify_shape(effective_ty: &Type, raw_ty: &Type) -> FieldShape {
+fn classify_shape(effective_ty: &Type, raw_ty: &Type) -> (FieldShape, Option<Type>) {
     if is_composite_type(raw_ty) {
-        return FieldShape::Composite;
+        return (FieldShape::Composite, None);
+    }
+
+    // Migration<From, To> — must check before Account<T> since both are
+    // generic wrappers. The `From` type is used for source-data access.
+    if let Some(from_ty) = extract_migration_from_type(effective_ty) {
+        return (FieldShape::Migration, Some(from_ty));
     }
 
     if let Some(inner) = extract_generic_inner_type(effective_ty, "Account") {
-        return FieldShape::Account {
-            inner_ty: inner.clone(),
-        };
+        return (FieldShape::Account, Some(inner.clone()));
     }
     if let Some(inner) = extract_generic_inner_type(effective_ty, "InterfaceAccount") {
-        return FieldShape::InterfaceAccount {
-            inner_ty: inner.clone(),
-        };
+        return (FieldShape::InterfaceAccount, Some(inner.clone()));
     }
     if let Some(inner) = extract_generic_inner_type(effective_ty, "Program") {
-        return FieldShape::Program {
-            inner_ty: inner.clone(),
-        };
+        return (FieldShape::Program, Some(inner.clone()));
     }
     if let Some(inner) = extract_generic_inner_type(effective_ty, "Interface") {
-        return FieldShape::Interface {
-            inner_ty: inner.clone(),
-        };
+        return (FieldShape::Interface, Some(inner.clone()));
     }
     if let Some(inner) = extract_generic_inner_type(effective_ty, "Sysvar") {
-        return FieldShape::Sysvar {
-            inner_ty: inner.clone(),
-        };
+        return (FieldShape::Sysvar, Some(inner.clone()));
     }
 
-    match type_base_name(effective_ty) {
+    let shape = match type_base_name(effective_ty) {
         Some(ident) if ident == "SystemAccount" => FieldShape::SystemAccount,
         Some(ident) if ident == "Signer" => FieldShape::Signer,
         _ => FieldShape::Other,
+    };
+    (shape, None)
+}
+
+/// Extract the `From` type param from `Migration<From, To>`.
+fn extract_migration_from_type(ty: &Type) -> Option<Type> {
+    if let Type::Path(type_path) = ty {
+        if let Some(last) = type_path.path.segments.last() {
+            if last.ident == "Migration" {
+                if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                    let mut iter = args.args.iter();
+                    if let (
+                        Some(syn::GenericArgument::Type(from)),
+                        Some(syn::GenericArgument::Type(_to)),
+                    ) = (iter.next(), iter.next())
+                    {
+                        return Some(from.clone());
+                    }
+                }
+            }
+        }
     }
+    None
 }
 
 fn type_base_name(ty: &Type) -> Option<&syn::Ident> {
@@ -147,10 +190,18 @@ fn type_base_name(ty: &Type) -> Option<&syn::Ident> {
     }
 }
 
-fn detect_dynamic(shape: &FieldShape) -> bool {
-    let inner = match shape {
-        FieldShape::Account { inner_ty } => inner_ty,
-        _ => return false,
+fn inner_name_matches(inner_name: &Option<Ident>, names: &[&str]) -> bool {
+    inner_name
+        .as_ref()
+        .is_some_and(|ident| names.iter().any(|name| ident == *name))
+}
+
+fn detect_dynamic(shape: FieldShape, inner_ty: Option<&Type>) -> bool {
+    if !matches!(shape, FieldShape::Account) {
+        return false;
+    }
+    let Some(inner) = inner_ty else {
+        return false;
     };
     if let Type::Path(tp) = inner {
         if let Some(last) = tp.path.segments.last() {
@@ -253,11 +304,21 @@ fn lower_constraints(
             AccountDirective::MintInitAuthority(v) => mint_authority = Some(v),
             AccountDirective::MintFreezeAuthority(v) => mint_freeze_authority = Some(v),
             AccountDirective::MintTokenProgram(v) => mint_token_program = Some(v),
+            AccountDirective::Param { key, value } => {
+                sem.params.validate.push(ParamAssign { key, value });
+            }
+            AccountDirective::InitParam { key, value } => {
+                sem.params.init.push(ParamAssign { key, value });
+            }
         }
     }
 
     if let Some(mode) = init_mode {
-        sem.init = Some(InitConstraint { mode, payer, space });
+        sem.init = Some(InitConstraint {
+            mode,
+            payer: payer.clone(),
+            space,
+        });
     }
 
     if let (Some(mint), Some(authority)) = (token_mint, token_authority) {
@@ -290,6 +351,14 @@ fn lower_constraints(
             space_expr,
             payer: realloc_payer,
         });
+    }
+
+    // For Migration<From, To> fields, store explicit payer directly on support
+    // so resolve_supports can find it. Without init, payer has nowhere else to go.
+    if matches!(sem.core.shape, FieldShape::Migration) {
+        if let Some(p) = payer {
+            sem.support.payer = Some(p);
+        }
     }
 }
 
