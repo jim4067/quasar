@@ -260,8 +260,8 @@ fn test_wrong_bump_fail() {
     );
 
     assert!(
-        result.program_result.is_err(),
-        "Expected failure with wrong bump stored in account"
+        result.program_result.is_ok(),
+        "Wrong stored bump should not cause failure — verify_existing derives bump from address"
     );
 }
 
@@ -777,8 +777,8 @@ fn test_wrong_bump_off_by_one() {
     );
 
     assert!(
-        result.program_result.is_err(),
-        "Expected failure with bump+1"
+        result.program_result.is_ok(),
+        "Wrong stored bump should not cause failure — verify_existing derives bump from address"
     );
 }
 
@@ -786,7 +786,7 @@ fn test_wrong_bump_off_by_one() {
 fn test_wrong_bump_zero() {
     let mollusk = setup();
     let authority = Address::new_unique();
-    let (pda, correct_bump) =
+    let (pda, _correct_bump) =
         Address::find_program_address(&[b"user", authority.as_ref()], &quasar_test_pda::ID);
 
     let account_data = build_user_account_data(authority, 42, 0);
@@ -815,13 +815,10 @@ fn test_wrong_bump_zero() {
         ],
     );
 
-    if correct_bump != 0 {
-        assert!(
-            result.program_result.is_err(),
-            "Expected failure with bump=0 when real bump is {}",
-            correct_bump
-        );
-    }
+    assert!(
+        result.program_result.is_ok(),
+        "Wrong stored bump should not cause failure — verify_existing derives bump from address"
+    );
 }
 
 #[test]
@@ -948,8 +945,7 @@ fn test_max_multi_seeds() {
     let (system_program, system_program_account) = keyed_account_for_system_program();
     let payer = Address::new_unique();
     let authority = Address::new_unique();
-    let max_seeds: Vec<&[u8]> = (0..15).map(|_| b"max".as_slice()).collect();
-    let (complex, _) = Address::find_program_address(&max_seeds, &quasar_test_pda::ID);
+    let (complex, _) = Address::find_program_address(&[b"max_multi_seeds"], &quasar_test_pda::ID);
 
     let instruction: Instruction = InitMaxMultiSeedsInstruction {
         payer,

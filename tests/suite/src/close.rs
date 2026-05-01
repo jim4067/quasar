@@ -136,7 +136,9 @@ fn wrong_authority() {
         ],
     );
     assert!(result.is_err(), "should reject wrong authority");
-    result.assert_error(ProgramError::Custom(3005)); // HasOneMismatch
+    // v3: has_one now runs before PDA verification, so HasOneMismatch (3002)
+    // is caught first.
+    result.assert_error(ProgramError::Custom(3002));
 }
 
 #[test]
