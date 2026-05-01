@@ -28,7 +28,6 @@ impl quasar_lang::account_load::AccountLoad for ExternalConfig {
     }
 }
 
-impl FieldLifecycle for ExternalConfig {}
 
 impl Owners for ExternalConfig {
     fn owners() -> &'static [Address] {

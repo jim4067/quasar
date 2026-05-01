@@ -95,7 +95,6 @@ impl<T: ZeroCopyDeref> core::ops::DerefMut for InterfaceAccount<T> {
     }
 }
 
-impl<T> crate::traits::FieldLifecycle for InterfaceAccount<T> {}
 
 // --- Forwarding impls: InterfaceAccount<T> delegates behavior to T ---
 

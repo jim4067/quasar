@@ -197,6 +197,5 @@ fn generate_custom_account(name: &syn::Ident) -> proc_macro2::TokenStream {
             }
         }
 
-        impl quasar_lang::traits::FieldLifecycle for #name {}
     }
 }

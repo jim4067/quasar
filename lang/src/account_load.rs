@@ -11,11 +11,37 @@ pub trait AccountLoad: AsAccountView + Sized {
     const IS_SIGNER: bool = false;
     const IS_EXECUTABLE: bool = false;
 
+    // --- Migration hooks (override only in Migration<From, To>) ---
+    const HAS_BEFORE_INIT: bool = false;
+    const HAS_EXIT_VALIDATION: bool = false;
+
     /// Validate this account after header flag checks pass.
     ///
     /// Header flags (signer, writable, executable) are already validated by
     /// `parse_accounts` before this is called.
     fn check(view: &AccountView, field_name: &str) -> Result<(), ProgramError>;
+
+    /// Pre-handler hook for migration types. Called after load, before handler.
+    /// Default no-op for all non-migration types.
+    #[inline(always)]
+    fn before_init(
+        &mut self,
+        _payer: Option<&AccountView>,
+        _ctx: &crate::ops::OpCtx<'_>,
+    ) -> Result<(), ProgramError> {
+        Ok(())
+    }
+
+    /// Post-handler validation hook for migration types. Called in epilogue.
+    /// Default no-op for all non-migration types.
+    #[inline(always)]
+    fn exit_validation(
+        &mut self,
+        _payer: Option<&AccountView>,
+        _ctx: &crate::ops::OpCtx<'_>,
+    ) -> Result<(), ProgramError> {
+        Ok(())
+    }
 
     /// # Safety
     /// Caller must ensure the `AccountView` is valid for `#[repr(transparent)]`

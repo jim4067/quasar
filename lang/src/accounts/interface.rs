@@ -34,4 +34,3 @@ impl<T: ProgramInterface> Interface<T> {
     }
 }
 
-impl<T: crate::traits::ProgramInterface> crate::traits::FieldLifecycle for Interface<T> {}

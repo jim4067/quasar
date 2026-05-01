@@ -18,4 +18,3 @@ impl crate::account_load::AccountLoad for Signer {
     }
 }
 
-impl crate::traits::FieldLifecycle for Signer {}

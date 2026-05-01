@@ -17,4 +17,3 @@ impl crate::account_load::AccountLoad for UncheckedAccount {
     }
 }
 
-impl crate::traits::FieldLifecycle for UncheckedAccount {}

@@ -294,31 +294,6 @@ pub trait Event {
     fn emit(&self, f: impl FnOnce(&[u8]) -> Result<(), ProgramError>) -> Result<(), ProgramError>;
 }
 
-/// Generic field lifecycle trait. The derive calls exit_lifecycle on all
-/// mut fields in the epilogue. Most account types use the default no-op.
-/// Migration<From, To> overrides to enforce .migrate() was called.
-pub trait FieldLifecycle {
-    const HAS_LIFECYCLE_BEFORE: bool = false;
-    const HAS_LIFECYCLE_EXIT: bool = false;
-
-    #[inline(always)]
-    fn before_lifecycle(
-        &mut self,
-        _payer: Option<&AccountView>,
-        _ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn exit_lifecycle(
-        &mut self,
-        _payer: Option<&AccountView>,
-        _ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        Ok(())
-    }
-}
 
 /// Verify that the actual account count matches the expected count.
 ///

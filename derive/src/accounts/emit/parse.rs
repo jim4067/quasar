@@ -376,7 +376,7 @@ fn emit_phase3(semantics: &[FieldSemantics], op_ctx: &OpEmitCtx) -> Vec<proc_mac
             }
 
             if has_field_lifecycle(sem) {
-                // Field lifecycle before-handler hook. Migration uses this to
+                // AccountLoad before_init hook. Migration uses this to
                 // grow the account before handler code writes the target
                 // layout.
                 let payer_option = match &sem.payer {
@@ -384,8 +384,8 @@ fn emit_phase3(semantics: &[FieldSemantics], op_ctx: &OpEmitCtx) -> Vec<proc_mac
                     None => quote! { None },
                 };
                 let lifecycle_call = quote! {
-                    if <#ty as quasar_lang::traits::FieldLifecycle>::HAS_LIFECYCLE_BEFORE {
-                        quasar_lang::traits::FieldLifecycle::before_lifecycle(
+                    if <#ty as quasar_lang::account_load::AccountLoad>::HAS_BEFORE_INIT {
+                        quasar_lang::account_load::AccountLoad::before_init(
                             &mut #ident,
                             #payer_option,
                             &__ctx,
@@ -740,15 +740,15 @@ pub(crate) fn emit_epilogue(
             exit_stmts.push(emit_exit_action_call(ty, field, group, op_ctx, &spl_crate));
         }
 
-        // FieldLifecycle exit check for types with lifecycle behavior.
+        // AccountLoad exit_validation hook for types with lifecycle behavior.
         if sem.core.is_mut && sem.core.kind == FieldKind::Single && has_field_lifecycle(sem) {
             let payer_option = match &sem.payer {
                 Some(p) => quote! { Some(self.#p.to_account_view()) },
                 None => quote! { None },
             };
             exit_stmts.push(quote! {
-                if <#ty as quasar_lang::traits::FieldLifecycle>::HAS_LIFECYCLE_EXIT {
-                    quasar_lang::traits::FieldLifecycle::exit_lifecycle(
+                if <#ty as quasar_lang::account_load::AccountLoad>::HAS_EXIT_VALIDATION {
+                    quasar_lang::account_load::AccountLoad::exit_validation(
                         &mut self.#field,
                         #payer_option,
                         &__ctx,
@@ -781,11 +781,11 @@ pub(crate) fn emit_has_epilogue(semantics: &[FieldSemantics]) -> proc_macro2::To
             exprs.push(quote! { true });
         }
 
-        // FieldLifecycle exit for types with lifecycle behavior.
+        // AccountLoad exit_validation for types with lifecycle behavior.
         if sem.core.is_mut && sem.core.kind == FieldKind::Single && has_field_lifecycle(sem) {
             let ty = &sem.core.effective_ty;
             exprs.push(quote! {
-                <#ty as quasar_lang::traits::FieldLifecycle>::HAS_LIFECYCLE_EXIT
+                <#ty as quasar_lang::account_load::AccountLoad>::HAS_EXIT_VALIDATION
             });
         }
     }

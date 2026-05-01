@@ -54,4 +54,3 @@ impl<T: crate::traits::Id> Program<T> {
     }
 }
 
-impl<T: crate::traits::Id> crate::traits::FieldLifecycle for Program<T> {}

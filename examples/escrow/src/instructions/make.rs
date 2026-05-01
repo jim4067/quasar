@@ -4,7 +4,7 @@ use {
         state::{Escrow, EscrowInner},
     },
     quasar_lang::prelude::*,
-    quasar_spl::{ops::token, Mint, Token, TokenCpi, TokenProgram},
+    quasar_spl::{Mint, Token, TokenCpi, TokenProgram},
 };
 
 #[derive(Accounts)]

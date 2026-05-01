@@ -108,7 +108,6 @@ pub(crate) fn generate_one_of_account(
             }
         }
 
-        impl quasar_lang::traits::FieldLifecycle for #name {}
     };
 
     // 4. Owner — const assertion all variants share same owner

@@ -360,7 +360,6 @@ impl<T> core::ops::DerefMut for Account<T> {
     }
 }
 
-impl<T> crate::traits::FieldLifecycle for Account<T> {}
 
 // --- Forwarding impls: Account<T> delegates behavior to T ---
 

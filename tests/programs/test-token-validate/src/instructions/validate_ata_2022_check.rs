@@ -1,7 +1,7 @@
 use {
     quasar_derive::Accounts,
     quasar_lang::prelude::*,
-    quasar_spl::{ops::associated_token, Mint2022, Token2022, Token2022Program},
+    quasar_spl::{Mint2022, Token2022, Token2022Program},
 };
 
 #[derive(Accounts)]

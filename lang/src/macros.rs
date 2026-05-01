@@ -17,7 +17,6 @@ macro_rules! define_account {
     // - ZeroCopyDeref
     // - StaticView
     // - AccountLoad::check() composing listed checks
-    // - FieldLifecycle default no-op
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident => [$($check:path),* $(,)?] : $schema:ty
@@ -76,7 +75,6 @@ macro_rules! define_account {
             }
         }
 
-        impl $crate::traits::FieldLifecycle for $name {}
     };
 
     // Base form: `pub struct Signer => [checks::Signer]`

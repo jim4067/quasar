@@ -1,7 +1,7 @@
 use {
     crate::{events::TakeEvent, state::Escrow},
     quasar_lang::{ops::close_program, prelude::*},
-    quasar_spl::{ops::token, Mint, Token, TokenCpi, TokenProgram},
+    quasar_spl::{Mint, Token, TokenCpi, TokenProgram},
 };
 
 #[derive(Accounts)]

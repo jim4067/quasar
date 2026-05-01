@@ -1,7 +1,7 @@
 use {
     quasar_derive::Accounts,
     quasar_lang::prelude::{InterfaceAccount, *},
-    quasar_spl::{ops::mint, Mint, TokenInterface},
+    quasar_spl::{Mint, TokenInterface},
 };
 
 #[derive(Accounts)]

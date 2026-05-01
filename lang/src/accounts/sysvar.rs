@@ -48,4 +48,3 @@ impl<T: crate::sysvars::Sysvar> core::ops::Deref for Sysvar<T> {
     }
 }
 
-impl<T: crate::sysvars::Sysvar> crate::traits::FieldLifecycle for Sysvar<T> {}

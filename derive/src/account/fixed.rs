@@ -55,7 +55,6 @@ pub(super) fn generate_account(
                     }
                 }
 
-                impl quasar_lang::traits::FieldLifecycle for #name {}
             };
             // Custom accounts do NOT get generated AccountInit/AccountExit —
             // the user provides manual trait impls if needed.
@@ -97,7 +96,6 @@ pub(super) fn generate_account(
                     }
                 }
 
-                impl quasar_lang::traits::FieldLifecycle for #name {}
             };
             (disc, owner, space, check, account_load)
         } else {
@@ -139,7 +137,6 @@ pub(super) fn generate_account(
                     }
                 }
 
-                impl quasar_lang::traits::FieldLifecycle for #name {}
             };
             // No AccountCheck generated — composed checks replace it.
             (disc, owner, space, quote::quote! {}, account_load)

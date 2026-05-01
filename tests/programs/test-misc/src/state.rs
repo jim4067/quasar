@@ -209,4 +209,3 @@ impl quasar_lang::account_load::AccountLoad for VaultInterface {
     }
 }
 
-impl quasar_lang::traits::FieldLifecycle for VaultInterface {}

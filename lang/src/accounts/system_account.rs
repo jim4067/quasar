@@ -20,4 +20,3 @@ impl crate::account_load::AccountLoad for SystemAccount {
     }
 }
 
-impl crate::traits::FieldLifecycle for SystemAccount {}

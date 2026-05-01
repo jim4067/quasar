@@ -1,7 +1,7 @@
 use {
     quasar_derive::Accounts,
     quasar_lang::prelude::*,
-    quasar_spl::{ops::mint, Mint, TokenProgram},
+    quasar_spl::{Mint, TokenProgram},
 };
 
 /// V1 had no `token_program` field (program inferred at compile time).

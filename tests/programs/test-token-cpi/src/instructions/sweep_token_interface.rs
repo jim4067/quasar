@@ -2,7 +2,7 @@ use {
     quasar_derive::Accounts,
     quasar_lang::prelude::{InterfaceAccount, *},
     quasar_spl::{
-        ops::{sweep, token},
+        ops::sweep,
         Mint, Token, TokenInterface,
     },
 };

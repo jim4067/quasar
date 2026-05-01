@@ -66,13 +66,63 @@ impl<From, To: crate::traits::Space> crate::traits::Space for Migration<From, To
 
 impl<From, To> crate::account_load::AccountLoad for Migration<From, To>
 where
-    From: AsAccountView + CheckOwner + crate::account_load::AccountLoad + crate::traits::StaticView,
+    From: AsAccountView
+        + CheckOwner
+        + crate::account_load::AccountLoad
+        + crate::traits::StaticView
+        + core::ops::Deref
+        + crate::traits::Discriminator
+        + crate::traits::Owner,
+    From::Target: Sized,
+    To: crate::traits::Space + core::ops::Deref + crate::traits::Discriminator + crate::traits::Owner,
+    To::Target: Sized,
 {
+    const HAS_BEFORE_INIT: bool = true;
+    const HAS_EXIT_VALIDATION: bool = true;
+
     #[inline(always)]
     fn check(view: &AccountView, field_name: &str) -> Result<(), ProgramError> {
         // Validate against source type (owner + data checks).
         From::check_owner(view)?;
         From::check(view, field_name)
+    }
+
+    #[inline(always)]
+    fn before_init(
+        &mut self,
+        payer: Option<&AccountView>,
+        ctx: &crate::ops::OpCtx<'_>,
+    ) -> Result<(), ProgramError> {
+        let target_space = <To as crate::traits::Space>::SPACE;
+        let view = unsafe { &mut *(self as *mut Self as *mut AccountView) };
+        if view.data_len() < target_space {
+            let payer = payer.ok_or(ProgramError::NotEnoughAccountKeys)?;
+            crate::accounts::realloc_account(view, target_space, payer, Some(ctx.rent()?))?;
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exit_validation(
+        &mut self,
+        payer: Option<&AccountView>,
+        ctx: &crate::ops::OpCtx<'_>,
+    ) -> Result<(), ProgramError> {
+        // Normalize to target size after the handler.
+        let view = unsafe { &mut *(self as *mut Self as *mut AccountView) };
+        let target_space = <To as crate::traits::Space>::SPACE;
+        if view.data_len() != target_space {
+            let payer = payer.ok_or(ProgramError::NotEnoughAccountKeys)?;
+            crate::accounts::realloc_account(view, target_space, payer, Some(ctx.rent()?))?;
+        }
+        // Verify .migrate() was called
+        if self.is_migrated() {
+            Ok(())
+        } else {
+            Err(ProgramError::Custom(
+                crate::error::QuasarError::AccountNotMigrated as u32,
+            ))
+        }
     }
 }
 
@@ -217,56 +267,3 @@ where
     }
 }
 
-impl<From, To> crate::traits::FieldLifecycle for Migration<From, To>
-where
-    From: core::ops::Deref + crate::traits::Discriminator + crate::traits::Owner,
-    From::Target: Sized,
-    To: core::ops::Deref
-        + crate::traits::Owner
-        + crate::traits::Space
-        + crate::traits::Discriminator,
-    To::Target: Sized,
-{
-    const HAS_LIFECYCLE_BEFORE: bool = true;
-    const HAS_LIFECYCLE_EXIT: bool = true;
-
-    #[inline(always)]
-    fn before_lifecycle(
-        &mut self,
-        payer: Option<&AccountView>,
-        ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        let target_space = <To as crate::traits::Space>::SPACE;
-        let view = unsafe { &mut *(self as *mut Self as *mut AccountView) };
-        if view.data_len() < target_space {
-            let payer = payer.ok_or(ProgramError::NotEnoughAccountKeys)?;
-            crate::accounts::realloc_account(view, target_space, payer, Some(ctx.rent()?))?;
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn exit_lifecycle(
-        &mut self,
-        payer: Option<&AccountView>,
-        ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        // Normalize to target size after the handler. Growth already happened
-        // before the handler so migrate() can write safely; this handles shrink
-        // migrations and explicit over-allocation.
-        let view = unsafe { &mut *(self as *mut Self as *mut AccountView) };
-        let target_space = <To as crate::traits::Space>::SPACE;
-        if view.data_len() != target_space {
-            let payer = payer.ok_or(ProgramError::NotEnoughAccountKeys)?;
-            crate::accounts::realloc_account(view, target_space, payer, Some(ctx.rent()?))?;
-        }
-        // Verify .migrate() was called
-        if self.is_migrated() {
-            Ok(())
-        } else {
-            Err(ProgramError::Custom(
-                crate::error::QuasarError::AccountNotMigrated as u32,
-            ))
-        }
-    }
-}

@@ -28,7 +28,7 @@ pub use {
         sysvars::{clock::Clock, rent::Rent},
         traits::{
             AccountCheck, AccountCount, AsAccountView, CheckOwner, Discriminator, Event,
-            FieldLifecycle, HasSeeds, Id, Owner, Owners, ParseAccounts, ProgramInterface, Space,
+            HasSeeds, Id, Owner, Owners, ParseAccounts, ProgramInterface, Space,
             StaticView, ZeroCopyDeref,
         },
         String, Vec, ZcElem, ZcField, ZcValidate, ZeroPodError,
