@@ -27,7 +27,7 @@ use {
     super::{
         super::resolve::{FieldKind, FieldSemantics, UserCheck},
         ops::{
-            emit_op_struct, emit_op_type, emit_op_type_static, exit_arg, raw_slot_arg, typed_arg,
+            emit_op_struct, emit_op_type, emit_op_type_static, exit_arg, typed_arg,
             OpEmitCtx,
         },
     },
@@ -97,8 +97,6 @@ pub(crate) fn emit_parse_body(
     //    fields like config.namespace)
     // 3. Load init fields (now created by init CPI)
     // 4. Ops, validation, user checks
-    // Non-init groups that have before_load (rare but possible)
-    let non_init_before_load = emit_non_init_before_load(semantics, &op_ctx);
     let load_non_init = emit_phase2_filtered(semantics, false);
     let init_phase = emit_init_phase(semantics, &op_ctx)?;
     let load_init = emit_phase2_filtered(semantics, true);
@@ -116,7 +114,6 @@ pub(crate) fn emit_parse_body(
     Ok(quote! {
         #bump_vars
         #ctx_init
-        #(#non_init_before_load)*
         #(#load_non_init)*
         #(#init_phase)*
         #(#load_init)*
@@ -125,37 +122,6 @@ pub(crate) fn emit_parse_body(
     })
 }
 
-// ==== Pre-load: before_load for non-init field groups ====
-
-fn emit_non_init_before_load(
-    semantics: &[FieldSemantics],
-    op_ctx: &OpEmitCtx,
-) -> Vec<proc_macro2::TokenStream> {
-    let mut stmts = Vec::new();
-    for sem in semantics {
-        if sem.has_init() {
-            continue;
-        }
-        let ident = &sem.core.ident;
-        let ty = &sem.core.effective_ty;
-        for group in &sem.groups {
-            let op_static = emit_op_type_static(group);
-            let op_live = emit_op_type(group);
-            let op = emit_op_struct(group, raw_slot_arg, op_ctx);
-            stmts.push(quote! {
-                if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_BEFORE_LOAD {
-                    <#op_live as quasar_lang::ops::AccountOp<
-                        #ty,
-                    >>::before_load(
-                        &#op,
-                        #ident, &__ctx,
-                    )?;
-                }
-            });
-        }
-    }
-    stmts
-}
 
 // ==== Init phase: address verify + init CPI (runs after non-init fields
 // loaded) ====

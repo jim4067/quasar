@@ -13,39 +13,12 @@
 use {
     crate::{
         prelude::AccountView,
-        traits::{AccountCheck, CheckOwner, Id, ProgramInterface},
+        traits::{Id, ProgramInterface},
         utils::hint::unlikely,
     },
     solana_address::Address,
     solana_program_error::ProgramError,
 };
-
-// ---------------------------------------------------------------------------
-// Account owner + discriminator
-// ---------------------------------------------------------------------------
-
-/// Validate owner and discriminator for `Account<T>`.
-#[inline(always)]
-pub fn check_account<T: CheckOwner + AccountCheck>(
-    view: &AccountView,
-    _field: &str,
-) -> Result<(), ProgramError> {
-    T::check_owner(view).inspect_err(|_e| {
-        #[cfg(feature = "debug")]
-        crate::prelude::log(&::alloc::format!(
-            "Owner check failed for account '{}'",
-            _field
-        ));
-    })?;
-    T::check(view).inspect_err(|_e| {
-        #[cfg(feature = "debug")]
-        crate::prelude::log(&::alloc::format!(
-            "Discriminator check failed for account '{}': data may be uninitialized or corrupted",
-            _field
-        ));
-    })?;
-    Ok(())
-}
 
 // ---------------------------------------------------------------------------
 // Program / Sysvar / Interface address checks

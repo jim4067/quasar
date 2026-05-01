@@ -115,33 +115,6 @@ fn is_field_ident(expr: &syn::Expr, ctx: &OpEmitCtx) -> bool {
     false
 }
 
-/// Transform arg value for Phase 1 (pre-load): field idents reference raw
-/// `&mut AccountView` slots, `Some(ident)` wraps in Some, everything else
-/// passes through.
-pub(crate) fn raw_slot_arg(arg: &GroupArg, _ctx: &OpEmitCtx) -> proc_macro2::TokenStream {
-    transform_raw_expr(&arg.value)
-}
-
-fn transform_raw_expr(expr: &syn::Expr) -> proc_macro2::TokenStream {
-    match expr {
-        syn::Expr::Path(ep)
-            if ep.qself.is_none()
-                && ep.path.segments.len() == 1
-                && ep.path.segments[0].ident == "None" =>
-        {
-            quote! { None }
-        }
-        syn::Expr::Call(call)
-            if matches!(&*call.func, syn::Expr::Path(p)
-                if p.path.segments.len() == 1 && p.path.segments[0].ident == "Some")
-                && call.args.len() == 1 =>
-        {
-            let inner = transform_raw_expr(&call.args[0]);
-            quote! { Some(#inner) }
-        }
-        _ => quote! { #expr },
-    }
-}
 
 /// Transform arg value for Phase 3 (post-load): field idents get
 /// `.to_account_view()`, `Some(field)` becomes `Some(field.to_account_view())`,

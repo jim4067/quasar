@@ -17,6 +17,45 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
         return Err(syn::Error::new_spanned(span, "`init(...)` requires `mut`"));
     }
 
+    // init + realloc mutual exclusion
+    if sem.has_init() && sem.realloc.is_some() {
+        return Err(syn::Error::new_spanned(
+            span,
+            "`realloc = ...` cannot be used with `init`",
+        ));
+    }
+
+    // dup + mutation ops blocked (init, realloc, exit ops)
+    if sem.core.dup {
+        if sem.has_init() {
+            return Err(syn::Error::new_spanned(
+                span,
+                "`dup` cannot be used with `init` — mutation on aliased accounts is unsound",
+            ));
+        }
+        if sem.realloc.is_some() {
+            return Err(syn::Error::new_spanned(
+                span,
+                "`dup` cannot be used with `realloc` — mutation on aliased accounts is unsound",
+            ));
+        }
+        for group in &sem.groups {
+            let name = group_last_segment(&group.path);
+            if matches!(name.as_str(), "close" | "close_program" | "sweep") {
+                return Err(syn::Error::new_spanned(
+                    span,
+                    format!(
+                        "`dup` cannot be used with `{}` — mutation on aliased accounts is unsound",
+                        name
+                    ),
+                ));
+            }
+        }
+    }
+
+    // sweep-before-close hard error: close/close_program must come AFTER sweep
+    validate_exit_ordering(sem)?;
+
     // dup requires /// CHECK: doc comment
     if sem.core.dup {
         let has_doc = sem
@@ -86,4 +125,55 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
     }
 
     Ok(())
+}
+
+/// Validate exit action ordering: sweep must come before close/close_program.
+/// Also validate that sweep only pairs with token close, not close_program.
+fn validate_exit_ordering(sem: &FieldSemantics) -> syn::Result<()> {
+    let span = &sem.core.field;
+    let mut seen_close = false;
+    let mut has_sweep = false;
+    let mut has_close_program = false;
+
+    for group in &sem.groups {
+        let name = group_last_segment(&group.path);
+        match name.as_str() {
+            "close" | "close_program" => {
+                seen_close = true;
+                if name == "close_program" {
+                    has_close_program = true;
+                }
+            }
+            "sweep" => {
+                has_sweep = true;
+                if seen_close {
+                    return Err(syn::Error::new_spanned(
+                        span,
+                        "`sweep(...)` must appear before `close(...)` / `close_program(...)` — \
+                         wrong ordering is always a bug",
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // sweep only pairs with token close, not close_program
+    if has_sweep && has_close_program {
+        return Err(syn::Error::new_spanned(
+            span,
+            "`sweep(...)` cannot be used with `close_program(...)` — sweep is for token \
+             accounts only",
+        ));
+    }
+
+    Ok(())
+}
+
+/// Extract last path segment name from a group directive path.
+fn group_last_segment(path: &syn::Path) -> String {
+    path.segments
+        .last()
+        .map(|s| s.ident.to_string())
+        .unwrap_or_default()
 }
