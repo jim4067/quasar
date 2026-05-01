@@ -4,17 +4,10 @@
 //! token program. Contributes init params via `apply_init_params`.
 
 use quasar_lang::{
+    account_layout::AccountLayout,
     ops::{AccountOp, OpCtx},
     prelude::*,
 };
-
-/// Marker trait for account types with token account layout.
-///
-/// Bounds `token::Op` to only accept types that actually have token data.
-pub trait HasTokenLayout {}
-
-impl HasTokenLayout for crate::token::Token {}
-impl HasTokenLayout for crate::token_2022::Token2022 {}
 
 /// Token validation op. Constructed by the derive from `token(...)` syntax.
 pub struct Op<'a> {
@@ -23,7 +16,9 @@ pub struct Op<'a> {
     pub token_program: &'a AccountView,
 }
 
-impl<'a, F: AsAccountView + HasTokenLayout> AccountOp<F> for Op<'a> {
+impl<'a, F: AsAccountView + AccountLayout<Schema = crate::token::TokenData>> AccountOp<F>
+    for Op<'a>
+{
     const HAS_AFTER_LOAD: bool = true;
     const HAS_INIT_PARAMS: bool = true;
 
@@ -39,8 +34,8 @@ impl<'a, F: AsAccountView + HasTokenLayout> AccountOp<F> for Op<'a> {
 
     #[inline(always)]
     fn apply_init_params(&self, params: *mut u8) -> Result<(), ProgramError> {
-        // SAFETY: For all F: HasTokenLayout + AccountInit
-        // with InitParams = TokenInitParams. The derive passes a properly-typed
+        // SAFETY: For all F with AccountLayout<Schema = TokenData> + AccountInit,
+        // InitParams = TokenInitParams. The derive passes a properly-typed
         // &mut TokenInitParams cast to *mut u8.
         let params: &mut crate::token::TokenInitParams<'_> =
             unsafe { &mut *(params as *mut crate::token::TokenInitParams<'_>) };

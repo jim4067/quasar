@@ -3,12 +3,10 @@
 //! All required accounts are non-optional fields — compile error if omitted.
 //! The derive treats this as an ordinary op group.
 
-use {
-    crate::ops::token::HasTokenLayout,
-    quasar_lang::{
-        ops::{AccountOp, OpCtx},
-        prelude::*,
-    },
+use quasar_lang::{
+    account_layout::AccountLayout,
+    ops::{AccountOp, OpCtx},
+    prelude::*,
 };
 
 /// ATA init op. Constructed by the derive from `ata_init(...)` syntax.
@@ -24,7 +22,9 @@ pub struct Op<'a> {
     pub idempotent: bool,
 }
 
-impl<'a, F: AsAccountView + HasTokenLayout> AccountOp<F> for Op<'a> {
+impl<'a, F: AsAccountView + AccountLayout<Schema = crate::token::TokenData>> AccountOp<F>
+    for Op<'a>
+{
     const HAS_AFTER_LOAD: bool = true;
     const HAS_INIT_PARAMS: bool = true;
 
@@ -40,7 +40,7 @@ impl<'a, F: AsAccountView + HasTokenLayout> AccountOp<F> for Op<'a> {
 
     #[inline(always)]
     fn apply_init_params(&self, params: *mut u8) -> Result<(), ProgramError> {
-        // SAFETY: Same as token::Op — F: HasTokenLayout guarantees
+        // SAFETY: F with AccountLayout<Schema = TokenData> guarantees
         // InitParams = TokenInitParams.
         let params: &mut crate::token::TokenInitParams<'_> =
             unsafe { &mut *(params as *mut crate::token::TokenInitParams<'_>) };

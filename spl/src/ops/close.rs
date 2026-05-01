@@ -2,13 +2,11 @@
 //!
 //! Closes a token account via CPI to the token program.
 
-use {
-    crate::ops::token::HasTokenLayout,
-    quasar_lang::{
-        account_load::AccountLoad,
-        ops::{AccountOp, OpCtx},
-        prelude::*,
-    },
+use quasar_lang::{
+    account_layout::AccountLayout,
+    account_load::AccountLoad,
+    ops::{AccountOp, OpCtx},
+    prelude::*,
 };
 
 /// Trait for token account types that can be closed via CPI.
@@ -33,7 +31,9 @@ pub struct Op<'a> {
     pub token_program: &'a AccountView,
 }
 
-impl<'a, F: AccountLoad + HasTokenLayout + TokenClose> AccountOp<F> for Op<'a> {
+impl<'a, F: AccountLoad + AccountLayout<Schema = crate::token::TokenData> + TokenClose>
+    AccountOp<F> for Op<'a>
+{
     const REQUIRES_MUT: bool = true;
     const HAS_EXIT: bool = true;
 

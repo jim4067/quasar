@@ -2,13 +2,11 @@
 //!
 //! Sweeps all tokens from an account to a receiver before closing.
 
-use {
-    crate::ops::token::HasTokenLayout,
-    quasar_lang::{
-        account_load::AccountLoad,
-        ops::{AccountOp, OpCtx},
-        prelude::*,
-    },
+use quasar_lang::{
+    account_layout::AccountLayout,
+    account_load::AccountLoad,
+    ops::{AccountOp, OpCtx},
+    prelude::*,
 };
 
 /// Trait for token account types that support sweep (transfer all tokens out).
@@ -30,7 +28,9 @@ pub struct Op<'a> {
     pub token_program: &'a AccountView,
 }
 
-impl<'a, F: AsAccountView + HasTokenLayout + AccountLoad + TokenSweep> AccountOp<F> for Op<'a> {
+impl<'a, F: AsAccountView + AccountLayout<Schema = crate::token::TokenData> + AccountLoad + TokenSweep>
+    AccountOp<F> for Op<'a>
+{
     const REQUIRES_MUT: bool = true;
     const HAS_EXIT: bool = true;
 

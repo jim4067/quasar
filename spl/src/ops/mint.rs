@@ -5,15 +5,10 @@
 //! `apply_init_params`.
 
 use quasar_lang::{
+    account_layout::AccountLayout,
     ops::{AccountOp, OpCtx},
     prelude::*,
 };
-
-/// Marker trait for account types with mint account layout.
-pub trait HasMintLayout {}
-
-impl HasMintLayout for crate::token::Mint {}
-impl HasMintLayout for crate::token_2022::Mint2022 {}
 
 /// Mint validation op. Constructed by the derive from `mint(...)` syntax.
 pub struct Op<'a> {
@@ -23,7 +18,9 @@ pub struct Op<'a> {
     pub token_program: &'a AccountView,
 }
 
-impl<'a, F: AsAccountView + HasMintLayout> AccountOp<F> for Op<'a> {
+impl<'a, F: AsAccountView + AccountLayout<Schema = crate::token::MintData>> AccountOp<F>
+    for Op<'a>
+{
     const HAS_AFTER_LOAD: bool = true;
     const HAS_INIT_PARAMS: bool = true;
 
@@ -40,8 +37,8 @@ impl<'a, F: AsAccountView + HasMintLayout> AccountOp<F> for Op<'a> {
 
     #[inline(always)]
     fn apply_init_params(&self, params: *mut u8) -> Result<(), ProgramError> {
-        // SAFETY: For all F: HasMintLayout + AccountInit
-        // with InitParams = MintInitParams. The derive passes a properly-typed
+        // SAFETY: For all F with AccountLayout<Schema = MintData> + AccountInit,
+        // InitParams = MintInitParams. The derive passes a properly-typed
         // &mut MintInitParams cast to *mut u8.
         let params: &mut crate::token::MintInitParams<'_> =
             unsafe { &mut *(params as *mut crate::token::MintInitParams<'_>) };

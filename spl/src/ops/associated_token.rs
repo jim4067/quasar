@@ -3,12 +3,10 @@
 //! Validates the ATA address matches the expected authority + mint + program.
 //! For ATA initialization, use `ata_init::Op` instead.
 
-use {
-    crate::ops::token::HasTokenLayout,
-    quasar_lang::{
-        ops::{AccountOp, OpCtx},
-        prelude::*,
-    },
+use quasar_lang::{
+    account_layout::AccountLayout,
+    ops::{AccountOp, OpCtx},
+    prelude::*,
 };
 
 /// ATA validate-only op. Constructed by the derive from
@@ -19,7 +17,9 @@ pub struct Op<'a> {
     pub token_program: &'a AccountView,
 }
 
-impl<'a, F: AsAccountView + HasTokenLayout> AccountOp<F> for Op<'a> {
+impl<'a, F: AsAccountView + AccountLayout<Schema = crate::token::TokenData>> AccountOp<F>
+    for Op<'a>
+{
     const HAS_AFTER_LOAD: bool = true;
 
     #[inline(always)]

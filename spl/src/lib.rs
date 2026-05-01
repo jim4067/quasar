@@ -249,8 +249,6 @@ impl<T: ops::sweep::TokenSweep> ops::sweep::TokenSweep for Account<T> {
     }
 }
 
-impl<T: ops::token::HasTokenLayout> ops::token::HasTokenLayout for Account<T> {}
-impl<T: ops::mint::HasMintLayout> ops::mint::HasMintLayout for Account<T> {}
 
 impl<T: ops::close::TokenClose> ops::close::TokenClose for InterfaceAccount<T> {
     #[inline(always)]
@@ -266,5 +264,47 @@ impl<T: ops::sweep::TokenSweep> ops::sweep::TokenSweep for InterfaceAccount<T> {
     }
 }
 
-impl<T: ops::token::HasTokenLayout> ops::token::HasTokenLayout for InterfaceAccount<T> {}
-impl<T: ops::mint::HasMintLayout> ops::mint::HasMintLayout for InterfaceAccount<T> {}
+// --- Capability trait forwarding: Account<T>/InterfaceAccount<T> → T ---
+
+impl<T: ops::capabilities::TokenInitContributor> ops::capabilities::TokenInitContributor for Account<T> {
+    #[inline(always)]
+    fn apply_token_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::TokenInitCtx<'a>) -> Result<(), ProgramError> {
+        T::apply_token_init(params, ctx)
+    }
+}
+
+impl<T: ops::capabilities::MintInitContributor> ops::capabilities::MintInitContributor for Account<T> {
+    #[inline(always)]
+    fn apply_mint_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::MintInitCtx<'a>) -> Result<(), ProgramError> {
+        T::apply_mint_init(params, ctx)
+    }
+}
+
+impl<T: ops::capabilities::AtaInitContributor> ops::capabilities::AtaInitContributor for Account<T> {
+    #[inline(always)]
+    fn apply_ata_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::AtaInitCtx<'a>) -> Result<(), ProgramError> {
+        T::apply_ata_init(params, ctx)
+    }
+}
+
+impl<T: ops::capabilities::TokenInitContributor> ops::capabilities::TokenInitContributor for InterfaceAccount<T> {
+    #[inline(always)]
+    fn apply_token_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::TokenInitCtx<'a>) -> Result<(), ProgramError> {
+        T::apply_token_init(params, ctx)
+    }
+}
+
+impl<T: ops::capabilities::MintInitContributor> ops::capabilities::MintInitContributor for InterfaceAccount<T> {
+    #[inline(always)]
+    fn apply_mint_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::MintInitCtx<'a>) -> Result<(), ProgramError> {
+        T::apply_mint_init(params, ctx)
+    }
+}
+
+impl<T: ops::capabilities::AtaInitContributor> ops::capabilities::AtaInitContributor for InterfaceAccount<T> {
+    #[inline(always)]
+    fn apply_ata_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::AtaInitCtx<'a>) -> Result<(), ProgramError> {
+        T::apply_ata_init(params, ctx)
+    }
+}
+

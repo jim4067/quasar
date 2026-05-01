@@ -28,12 +28,20 @@ impl<T> AsAccountView for InterfaceAccount<T> {
     }
 }
 
-impl<T: Owners + AccountCheck> InterfaceAccount<T> {
+impl<T: crate::account_layout::AccountLayout> crate::account_layout::AccountLayout
+    for InterfaceAccount<T>
+{
+    type Schema = T::Schema;
+    type Target = T::Target;
+    const DATA_OFFSET: usize = T::DATA_OFFSET;
+}
+
+impl<T: Owners + crate::account_load::AccountLoad> InterfaceAccount<T> {
     /// Validate owner + data check, then pointer-cast.
     #[inline(always)]
     pub fn from_account_view(view: &AccountView) -> Result<&Self, ProgramError> {
         check_owners(view, T::owners())?;
-        T::check(view)?;
+        T::check(view, "")?;
         Ok(unsafe { &*(view as *const AccountView as *const Self) })
     }
     #[inline(always)]
@@ -42,7 +50,7 @@ impl<T: Owners + AccountCheck> InterfaceAccount<T> {
             return Err(ProgramError::Immutable);
         }
         check_owners(view, T::owners())?;
-        T::check(view)?;
+        T::check(view, "")?;
         Ok(unsafe { &mut *(view as *mut AccountView as *mut Self) })
     }
 
