@@ -45,10 +45,6 @@ impl<T> InstructionArgField for T where
 {
 }
 
-// ---------------------------------------------------------------------------
-// Sealed BuiltinPod blanket — replaces per-type InstructionValue impls
-// ---------------------------------------------------------------------------
-
 mod sealed {
     pub trait BuiltinPod {}
 }
@@ -299,11 +295,17 @@ mod tests {
     fn option_validate_all_boundary_tags() {
         for tag in 0..=1u8 {
             let zc = option_zc_with_tag(tag, crate::pod::PodU64::from(0));
-            assert!(Option::<u64>::validate_zc(&zc).is_ok(), "tag={tag} should be valid");
+            assert!(
+                Option::<u64>::validate_zc(&zc).is_ok(),
+                "tag={tag} should be valid"
+            );
         }
         for tag in 2..=255u8 {
             let zc = option_zc_with_tag(tag, crate::pod::PodU64::from(0));
-            assert!(Option::<u64>::validate_zc(&zc).is_err(), "tag={tag} should be invalid");
+            assert!(
+                Option::<u64>::validate_zc(&zc).is_err(),
+                "tag={tag} should be invalid"
+            );
         }
     }
 }

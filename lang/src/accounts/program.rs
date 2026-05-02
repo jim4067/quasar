@@ -21,10 +21,19 @@ impl<T: crate::traits::Id> crate::traits::Id for Program<T> {
 impl<T: crate::traits::Id> crate::account_load::AccountLoad for Program<T> {
     const IS_EXECUTABLE: bool = true;
 
-
     #[inline(always)]
-    fn check(view: &AccountView, field_name: &str) -> Result<(), ProgramError> {
-        crate::validation::check_program::<T>(view, field_name)
+    fn check(view: &AccountView, _field_name: &str) -> Result<(), ProgramError> {
+        if crate::utils::hint::unlikely(!crate::keys_eq(view.address(), &T::ID)) {
+            #[cfg(feature = "debug")]
+            crate::prelude::log(&::alloc::format!(
+                "Incorrect program ID for account '{}': expected {}, got {}",
+                _field_name,
+                T::ID,
+                view.address()
+            ));
+            return Err(ProgramError::IncorrectProgramId);
+        }
+        Ok(())
     }
 }
 
@@ -53,4 +62,3 @@ impl<T: crate::traits::Id> Program<T> {
         event.emit(|data| crate::event::emit_event_cpi(program, ea, data, bump))
     }
 }
-

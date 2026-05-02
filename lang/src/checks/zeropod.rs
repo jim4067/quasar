@@ -1,4 +1,7 @@
-use {crate::account_layout::AccountLayout, solana_account_view::AccountView, solana_program_error::ProgramError};
+use {
+    crate::account_layout::AccountLayout, solana_account_view::AccountView,
+    solana_program_error::ProgramError,
+};
 
 /// Validates `DATA_SIZE` bytes at `DATA_OFFSET` via `ZeroPodFixed::validate`.
 ///

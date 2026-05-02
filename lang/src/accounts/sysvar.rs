@@ -22,13 +22,22 @@ impl<T: crate::sysvars::Sysvar> Sysvar<T> {
 }
 
 impl<T: crate::sysvars::Sysvar> crate::account_load::AccountLoad for Sysvar<T> {
-
     #[inline(always)]
     fn check(
         view: &AccountView,
-        field_name: &str,
+        _field_name: &str,
     ) -> Result<(), solana_program_error::ProgramError> {
-        crate::validation::check_sysvar::<T>(view, field_name)
+        if crate::utils::hint::unlikely(!crate::keys_eq(view.address(), &T::ID)) {
+            #[cfg(feature = "debug")]
+            crate::prelude::log(&::alloc::format!(
+                "Incorrect sysvar address for account '{}': expected {}, got {}",
+                _field_name,
+                T::ID,
+                view.address()
+            ));
+            return Err(solana_program_error::ProgramError::IncorrectProgramId);
+        }
+        Ok(())
     }
 }
 
@@ -47,4 +56,3 @@ impl<T: crate::sysvars::Sysvar> core::ops::Deref for Sysvar<T> {
         self.get()
     }
 }
-

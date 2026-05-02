@@ -1,4 +1,7 @@
-use {crate::account_layout::AccountLayout, solana_account_view::AccountView, solana_program_error::ProgramError};
+use {
+    crate::account_layout::AccountLayout, solana_account_view::AccountView,
+    solana_program_error::ProgramError,
+};
 
 /// Validates that account data is at least `DATA_OFFSET + DATA_SIZE` bytes.
 pub trait DataLen: AccountLayout {

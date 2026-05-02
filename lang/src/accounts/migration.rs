@@ -91,7 +91,8 @@ where
     To: crate::traits::Space,
 {
     /// Grow the account to the target type's space before the handler.
-    /// Called by generated parse body when the derive detects a Migration field.
+    /// Called by generated parse body when the derive detects a Migration
+    /// field.
     #[inline(always)]
     pub fn grow_to_target(
         &mut self,
