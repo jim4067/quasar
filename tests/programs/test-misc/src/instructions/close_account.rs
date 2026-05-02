@@ -1,8 +1,4 @@
-use {
-    crate::state::SimpleAccount,
-    quasar_derive::Accounts,
-    quasar_lang::prelude::*,
-};
+use {crate::state::SimpleAccount, quasar_derive::Accounts, quasar_lang::prelude::*};
 
 #[derive(Accounts)]
 pub struct CloseAccount {
@@ -10,7 +6,7 @@ pub struct CloseAccount {
     pub authority: Signer,
     #[account(mut,
         has_one(authority),
-        close_program(dest = authority),
+        close(dest = authority),
         address = SimpleAccount::seeds(authority.address()),
     )]
     pub account: Account<SimpleAccount>,

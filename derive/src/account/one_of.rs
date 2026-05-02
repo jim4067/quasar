@@ -279,7 +279,7 @@ fn emit_one_of_accessors(
         pub fn variant(&self) -> #ref_enum_name<'_> {
             let __data = unsafe { self.__view.borrow_unchecked() };
             #(#variant_arms)*
-            // AccountCheck already validated one matches — unreachable.
+            // AccountLoad::check already validated one matches — unreachable.
             unsafe { core::hint::unreachable_unchecked() }
         }
     });

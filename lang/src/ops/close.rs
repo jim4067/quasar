@@ -1,7 +1,7 @@
-//! Close-program op: epilogue account close for program-owned accounts.
+//! Account close: epilogue close for program-owned accounts.
 //!
 //! The derive emits direct `AccountClose::close(view, dest)` calls in the
-//! epilogue. The `close_program_account` helper performs the actual close.
+//! epilogue. The `close_account` helper performs the actual close.
 
 use {
     solana_account_view::AccountView,
@@ -13,7 +13,7 @@ use {
 ///
 /// Ordering: discriminator zeroed first to prevent revival attacks.
 #[inline(always)]
-pub fn close_program_account(
+pub fn close_account(
     account: &mut AccountView,
     destination: &AccountView,
     disc_len: usize,

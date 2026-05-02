@@ -379,7 +379,8 @@ pub mod event;
 pub mod instruction_arg;
 /// Low-level `sol_log_data` syscall wrapper.
 pub mod log;
-/// Op-dispatch: `OpCtx`, `SupportsRealloc`, structural ops (init, realloc, PDA, close_program).
+/// Op-dispatch: `OpCtxWithRent`, `SupportsRealloc`, structural ops (init,
+/// realloc, close).
 pub mod ops;
 /// Program Derived Address creation and lookup.
 pub mod pda;
@@ -399,13 +400,13 @@ pub mod utils;
 pub mod validation;
 
 pub use crate::pod::{PodString as String, PodVec as Vec};
+#[doc(hidden)]
+pub use solana_program_error as __solana_program_error;
 /// Re-export of the `zeropod` crate so that `#[derive(ZeroPod)]` expansion
 /// inside framework-generated code can resolve `zeropod::*` paths without
 /// downstream crates adding a direct dependency.
 #[doc(hidden)]
 pub use zeropod as __zeropod;
-#[doc(hidden)]
-pub use solana_program_error as __solana_program_error;
 // Re-export zeropod traits for framework integration.
 pub use zeropod::{
     ZcElem, ZcField, ZcValidate, ZeroPodCompact, ZeroPodError, ZeroPodFixed, ZeroPodSchema,

@@ -11,7 +11,7 @@ pub struct Refund {
     #[account(
         mut,
         has_one(maker),
-        close_program(dest = maker),
+        close(dest = maker),
         address = Escrow::seeds(maker.address())
     )]
     pub escrow: Account<Escrow>,

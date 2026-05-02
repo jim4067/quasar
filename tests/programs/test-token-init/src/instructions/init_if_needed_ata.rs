@@ -10,9 +10,9 @@ pub struct InitIfNeededAta {
     pub payer: Signer,
     #[account(mut,
         init(idempotent), payer = payer,
-        ata_init(
-            authority = wallet, mint = mint, payer = payer, token_program = token_program,
-            system_program = system_program, ata_program = ata_program, idempotent = true,
+        associated_token(
+            authority = wallet, mint = mint, token_program = token_program,
+            system_program = system_program, ata_program = ata_program,
         ),
     )]
     pub ata: Account<Token>,

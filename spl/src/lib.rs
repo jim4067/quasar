@@ -86,19 +86,19 @@ macro_rules! impl_token_account_traits {
 macro_rules! impl_token_account_init {
     ($ty:ty) => {
         impl quasar_lang::account_init::AccountInit for $ty {
-            type InitParams<'a> = crate::token::TokenInitParams<'a>;
+            type InitParams<'a> = crate::token::TokenInitKind<'a>;
 
             #[inline(always)]
             fn init<'a>(
                 ctx: quasar_lang::account_init::InitCtx<'a>,
                 params: &Self::InitParams<'a>,
             ) -> Result<(), ProgramError> {
-                match &params.kind {
-                    Some(crate::token::TokenInitKind::Token {
+                match params {
+                    crate::token::TokenInitKind::Token {
                         mint,
                         authority,
                         token_program,
-                    }) => crate::init::init_token_account(
+                    } => crate::init::init_token_account(
                         ctx.payer,
                         ctx.target,
                         token_program,
@@ -107,14 +107,14 @@ macro_rules! impl_token_account_init {
                         ctx.signers,
                         ctx.rent,
                     ),
-                    Some(crate::token::TokenInitKind::AssociatedToken {
+                    crate::token::TokenInitKind::AssociatedToken {
                         mint,
                         authority,
                         token_program,
                         system_program,
                         ata_program,
                         idempotent,
-                    }) => {
+                    } => {
                         crate::validate_ata_program_id(ata_program)?;
                         crate::validate_token_program_id(token_program)?;
                         crate::validate_system_program_id(system_program)?;
@@ -129,7 +129,6 @@ macro_rules! impl_token_account_init {
                             *idempotent,
                         )
                     }
-                    None => Err(ProgramError::InvalidAccountData),
                 }
             }
         }
@@ -148,17 +147,12 @@ macro_rules! impl_mint_account_init {
                 ctx: quasar_lang::account_init::InitCtx<'a>,
                 params: &Self::InitParams<'a>,
             ) -> Result<(), ProgramError> {
-                let decimals = params.decimals.ok_or(ProgramError::InvalidAccountData)?;
-                let authority = params.authority.ok_or(ProgramError::InvalidAccountData)?;
-                let token_program = params
-                    .token_program
-                    .ok_or(ProgramError::InvalidAccountData)?;
                 crate::init::init_mint_account(
                     ctx.payer,
                     ctx.target,
-                    token_program,
-                    decimals,
-                    authority,
+                    params.token_program,
+                    params.decimals,
+                    params.authority,
                     params.freeze_authority,
                     ctx.signers,
                     ctx.rent,
@@ -180,6 +174,13 @@ mod token;
 mod token_2022;
 mod validate;
 
+// ---------------------------------------------------------------------------
+// Forwarding impls: Account<T>/InterfaceAccount<T> → T for SPL behavior traits
+// ---------------------------------------------------------------------------
+use quasar_lang::{
+    accounts::Account,
+    prelude::{AccountView, ProgramError},
+};
 pub use {
     associated_token::{
         create as ata_create, create_idempotent as ata_create_idempotent,
@@ -192,7 +193,10 @@ pub use {
     instructions::{initialize_account3, initialize_mint2, TokenCpi},
     interface::TokenInterface,
     quasar_lang::prelude::InterfaceAccount,
-    token::{Mint, MintData, MintDataZc, Token, TokenData, TokenDataZc, TokenProgram},
+    token::{
+        Mint, MintData, MintDataZc, MintInitParams, Token, TokenData, TokenDataZc, TokenInitKind,
+        TokenProgram,
+    },
     token_2022::{Mint2022, Token2022, Token2022Program},
     validate::{
         validate_ata, validate_ata_program_id, validate_mint, validate_system_program_id,
@@ -200,85 +204,53 @@ pub use {
     },
 };
 
-// ---------------------------------------------------------------------------
-// Forwarding impls: Account<T>/InterfaceAccount<T> → T for SPL behavior traits
-// ---------------------------------------------------------------------------
-
-use quasar_lang::{
-    accounts::Account,
-    prelude::{AccountView, ProgramError},
-};
-
 impl<T: ops::close::TokenClose> ops::close::TokenClose for Account<T> {
     #[inline(always)]
-    fn close(view: &mut AccountView, dest: &AccountView, authority: &AccountView, token_program: &AccountView) -> Result<(), ProgramError> {
+    fn close(
+        view: &mut AccountView,
+        dest: &AccountView,
+        authority: &AccountView,
+        token_program: &AccountView,
+    ) -> Result<(), ProgramError> {
         T::close(view, dest, authority, token_program)
     }
 }
 
 impl<T: ops::sweep::TokenSweep> ops::sweep::TokenSweep for Account<T> {
     #[inline(always)]
-    fn sweep(view: &AccountView, receiver: &AccountView, mint: &AccountView, authority: &AccountView, tp: &AccountView) -> Result<(), ProgramError> {
+    fn sweep(
+        view: &AccountView,
+        receiver: &AccountView,
+        mint: &AccountView,
+        authority: &AccountView,
+        tp: &AccountView,
+    ) -> Result<(), ProgramError> {
         T::sweep(view, receiver, mint, authority, tp)
     }
 }
 
-
 impl<T: ops::close::TokenClose> ops::close::TokenClose for InterfaceAccount<T> {
     #[inline(always)]
-    fn close(view: &mut AccountView, dest: &AccountView, authority: &AccountView, token_program: &AccountView) -> Result<(), ProgramError> {
+    fn close(
+        view: &mut AccountView,
+        dest: &AccountView,
+        authority: &AccountView,
+        token_program: &AccountView,
+    ) -> Result<(), ProgramError> {
         T::close(view, dest, authority, token_program)
     }
 }
 
 impl<T: ops::sweep::TokenSweep> ops::sweep::TokenSweep for InterfaceAccount<T> {
     #[inline(always)]
-    fn sweep(view: &AccountView, receiver: &AccountView, mint: &AccountView, authority: &AccountView, tp: &AccountView) -> Result<(), ProgramError> {
+    fn sweep(
+        view: &AccountView,
+        receiver: &AccountView,
+        mint: &AccountView,
+        authority: &AccountView,
+        tp: &AccountView,
+    ) -> Result<(), ProgramError> {
         T::sweep(view, receiver, mint, authority, tp)
-    }
-}
-
-// --- Capability trait forwarding: Account<T>/InterfaceAccount<T> → T ---
-
-impl<T: ops::capabilities::TokenInitContributor> ops::capabilities::TokenInitContributor for Account<T> {
-    #[inline(always)]
-    fn apply_token_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::TokenInitCtx<'a>) -> Result<(), ProgramError> {
-        T::apply_token_init(params, ctx)
-    }
-}
-
-impl<T: ops::capabilities::MintInitContributor> ops::capabilities::MintInitContributor for Account<T> {
-    #[inline(always)]
-    fn apply_mint_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::MintInitCtx<'a>) -> Result<(), ProgramError> {
-        T::apply_mint_init(params, ctx)
-    }
-}
-
-impl<T: ops::capabilities::AtaInitContributor> ops::capabilities::AtaInitContributor for Account<T> {
-    #[inline(always)]
-    fn apply_ata_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::AtaInitCtx<'a>) -> Result<(), ProgramError> {
-        T::apply_ata_init(params, ctx)
-    }
-}
-
-impl<T: ops::capabilities::TokenInitContributor> ops::capabilities::TokenInitContributor for InterfaceAccount<T> {
-    #[inline(always)]
-    fn apply_token_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::TokenInitCtx<'a>) -> Result<(), ProgramError> {
-        T::apply_token_init(params, ctx)
-    }
-}
-
-impl<T: ops::capabilities::MintInitContributor> ops::capabilities::MintInitContributor for InterfaceAccount<T> {
-    #[inline(always)]
-    fn apply_mint_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::MintInitCtx<'a>) -> Result<(), ProgramError> {
-        T::apply_mint_init(params, ctx)
-    }
-}
-
-impl<T: ops::capabilities::AtaInitContributor> ops::capabilities::AtaInitContributor for InterfaceAccount<T> {
-    #[inline(always)]
-    fn apply_ata_init<'a>(params: &mut Self::InitParams<'a>, ctx: ops::ctx::AtaInitCtx<'a>) -> Result<(), ProgramError> {
-        T::apply_ata_init(params, ctx)
     }
 }
 

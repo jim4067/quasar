@@ -1,4 +1,4 @@
-error: `sweep(...)` must appear before `close(...)` / `close_program(...)` — wrong ordering is always a bug
+error: `sweep(...)` must appear before `close(...)` — wrong ordering is always a bug
   --> tests/compile_fail/sweep_before_close_ordering.rs:15:5
    |
 15 | /     #[account(mut,

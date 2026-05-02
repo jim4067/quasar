@@ -7,7 +7,7 @@ use {
             parse_field_attrs,
         },
         rules::validate_semantics,
-        FieldCore, FieldKind, FieldSemantics, GroupDirective, InitDirective, OpKind,
+        FieldCore, FieldKind, FieldSemantics, GroupOp, InitDirective, OpKind,
     },
     crate::helpers::{extract_generic_inner_type, is_composite_type},
     syn::Type,
@@ -31,6 +31,7 @@ pub(super) fn lower_semantics(
         .into_iter()
         .zip(cores)
         .map(|((_, directives), core)| {
+            let is_migration = detect_migration(&core.effective_ty);
             let mut sem = FieldSemantics {
                 core,
                 init: None,
@@ -42,6 +43,7 @@ pub(super) fn lower_semantics(
                 init_contributors: Vec::new(),
                 exit_actions: Vec::new(),
                 user_checks: Vec::new(),
+                is_migration,
             };
             lower_directives(&mut sem, directives)?;
             Ok(sem)
@@ -188,65 +190,43 @@ fn detect_dynamic(effective_ty: &Type, inner_ty: Option<&Type>) -> bool {
     false
 }
 
-// --- Op classification ---
+// --- Migration detection ---
 
-/// Classify a group directive by its last path segment.
-fn classify_group(group: &GroupDirective) -> syn::Result<OpKind> {
-    let name = group
-        .path
-        .segments
-        .last()
-        .map(|s| s.ident.to_string())
-        .unwrap_or_default();
-    match name.as_str() {
-        "token" | "mint" | "ata_init" => Ok(OpKind::ConstraintAndInit),
-        "associated_token" => Ok(OpKind::Constraint),
-        "close" | "close_program" | "sweep" => Ok(OpKind::Exit),
-        _ => Err(syn::Error::new_spanned(
-            &group.path,
-            format!(
-                "unknown op group `{name}`. Valid: token, mint, \
-                 associated_token, ata_init, close, close_program, sweep"
-            ),
-        )),
+/// Syntactic detection: last path segment is `Migration`.
+/// Proc macros cannot resolve type aliases — only direct `Migration<From, To>`
+/// paths are supported.
+fn detect_migration(ty: &Type) -> bool {
+    match ty {
+        Type::Path(tp) => tp
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "Migration"),
+        _ => false,
     }
 }
+
+// --- Op classification ---
 
 /// Classify groups into buckets and sort exit actions.
 fn classify_groups(mut sem: FieldSemantics) -> syn::Result<FieldSemantics> {
     for group in &sem.groups {
-        let kind = classify_group(group)?;
-        match kind {
-            OpKind::Constraint => {
-                sem.constraints.push(group.clone());
-            }
-            OpKind::ConstraintAndInit => {
-                sem.constraints.push(group.clone());
-                // Only populate init_contributors when field has init.
+        let op = GroupOp::from_directive(group)?;
+        match op.kind.op_kind() {
+            OpKind::Check => {
+                sem.constraints.push(op.clone());
                 if sem.has_init() {
-                    sem.init_contributors.push(group.clone());
+                    sem.init_contributors.push(op);
                 }
             }
             OpKind::Exit => {
-                sem.exit_actions.push(group.clone());
+                sem.exit_actions.push(op);
             }
         }
     }
 
-    // Sort exit_actions: sweep before close/close_program.
-    sem.exit_actions.sort_by_key(|g| {
-        let name = g
-            .path
-            .segments
-            .last()
-            .map(|s| s.ident.to_string())
-            .unwrap_or_default();
-        match name.as_str() {
-            "sweep" => 0,
-            "close" | "close_program" => 1,
-            _ => 2,
-        }
-    });
+    // Sort exit_actions: sweep before close.
+    sem.exit_actions.sort_by_key(|g| g.kind.exit_order());
 
     Ok(sem)
 }

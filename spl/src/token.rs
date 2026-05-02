@@ -1,12 +1,13 @@
+// Re-export zeropod so #[derive(ZeroPod)] expansion resolves `zeropod::*`
+// paths.
 use {
-    crate::constants::{SPL_TOKEN_BYTES, SPL_TOKEN_ID, TOKEN_2022_ID},
-    crate::instructions::TokenCpi,
-    quasar_lang::{prelude::*, traits::Id},
+    crate::{
+        constants::{SPL_TOKEN_BYTES, SPL_TOKEN_ID, TOKEN_2022_ID},
+        instructions::TokenCpi,
+    },
+    quasar_lang::{__zeropod as zeropod, prelude::*, traits::Id},
     solana_address::Address,
 };
-
-// Re-export zeropod so #[derive(ZeroPod)] expansion resolves `zeropod::*` paths.
-use quasar_lang::__zeropod as zeropod;
 
 // ---------------------------------------------------------------------------
 // Token account schema — #[derive(ZeroPod)] replaces manual TokenAccountState
@@ -164,6 +165,18 @@ impl quasar_lang::traits::Owners for Token {
     fn owners() -> &'static [Address] {
         &SPL_TOKEN_OWNERS
     }
+
+    #[inline(always)]
+    fn check_owner(view: &AccountView) -> Result<(), ProgramError> {
+        let owner = view.owner();
+        if quasar_lang::utils::hint::unlikely(
+            !quasar_lang::keys_eq(owner, &SPL_TOKEN_ID)
+                && !quasar_lang::keys_eq(owner, &TOKEN_2022_ID),
+        ) {
+            return Err(ProgramError::IllegalOwner);
+        }
+        Ok(())
+    }
 }
 
 impl quasar_lang::traits::Owners for Mint {
@@ -171,12 +184,24 @@ impl quasar_lang::traits::Owners for Mint {
     fn owners() -> &'static [Address] {
         &SPL_TOKEN_OWNERS
     }
+
+    #[inline(always)]
+    fn check_owner(view: &AccountView) -> Result<(), ProgramError> {
+        let owner = view.owner();
+        if quasar_lang::utils::hint::unlikely(
+            !quasar_lang::keys_eq(owner, &SPL_TOKEN_ID)
+                && !quasar_lang::keys_eq(owner, &TOKEN_2022_ID),
+        ) {
+            return Err(ProgramError::IllegalOwner);
+        }
+        Ok(())
+    }
 }
 
 impl TokenCpi for Program<TokenProgram> {}
 
 // ---------------------------------------------------------------------------
-// Shared trait impls (AccountCheck, TokenClose, TokenSweep, AccountInit)
+// Shared trait impls (TokenClose, TokenSweep, AccountInit)
 // ---------------------------------------------------------------------------
 
 impl_token_account_traits!(Token);
@@ -187,7 +212,10 @@ impl_mint_account_init!(Mint);
 // Init param types (shared by Token2022/Mint2022)
 // ---------------------------------------------------------------------------
 
-/// Init kind: direct token account or ATA.
+/// Init params for token account creation via CPI.
+///
+/// The derive constructs this directly from validated account attributes —
+/// no Option wrapping, no Default. Re-exported at `quasar_spl::TokenInitKind`.
 pub enum TokenInitKind<'a> {
     /// Direct token account init via system program + initialize_account3.
     Token {
@@ -206,17 +234,14 @@ pub enum TokenInitKind<'a> {
     },
 }
 
-/// Init params for token account creation via CPI.
-#[derive(Default)]
-pub struct TokenInitParams<'a> {
-    pub kind: Option<TokenInitKind<'a>>,
-}
-
 /// Init params for mint account creation via CPI.
-#[derive(Default)]
+///
+/// The derive constructs this directly from validated account attributes.
+/// All fields are non-optional except `freeze_authority` which is legitimately
+/// optional. Re-exported at `quasar_spl::MintInitParams`.
 pub struct MintInitParams<'a> {
-    pub decimals: Option<u8>,
-    pub authority: Option<&'a Address>,
+    pub decimals: u8,
+    pub authority: &'a Address,
     pub freeze_authority: Option<&'a Address>,
-    pub token_program: Option<&'a AccountView>,
+    pub token_program: &'a AccountView,
 }

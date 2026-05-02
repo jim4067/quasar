@@ -218,6 +218,24 @@ impl<T: Owner> CheckOwner for T {
 pub trait Owners {
     /// Static slice of valid owner program addresses.
     fn owners() -> &'static [Address];
+
+    /// Check if an account is owned by one of the accepted owners.
+    ///
+    /// Implementors with a small fixed owner set can override this to avoid
+    /// slice iteration in hot account-parse paths.
+    #[inline(always)]
+    fn check_owner(view: &AccountView) -> Result<(), ProgramError> {
+        let owner = view.owner();
+        let owners = Self::owners();
+        let mut i = 0;
+        while i < owners.len() {
+            if crate::keys_eq(owner, &owners[i]) {
+                return Ok(());
+            }
+            i += 1;
+        }
+        Err(ProgramError::IllegalOwner)
+    }
 }
 
 /// Marker trait for account types with a `#[seeds]` definition.
@@ -281,7 +299,6 @@ pub trait Event {
     fn write_data(&self, buf: &mut [u8]);
     fn emit(&self, f: impl FnOnce(&[u8]) -> Result<(), ProgramError>) -> Result<(), ProgramError>;
 }
-
 
 /// Verify that the actual account count matches the expected count.
 ///

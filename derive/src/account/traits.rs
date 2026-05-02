@@ -1,6 +1,6 @@
 use {super::fixed::PodFieldInfo, crate::helpers::map_to_pod_type, quote::quote};
 
-pub(super) struct AccountCheckSpec<'a> {
+pub(super) struct AccountLoadSpec<'a> {
     pub name: &'a syn::Ident,
     pub has_dynamic: bool,
     pub disc_len: usize,
@@ -59,9 +59,10 @@ pub(super) fn emit_space_impl(
     }
 }
 
-/// Emit the validation body for dynamic/compact accounts as an `AccountLoad::check` impl.
-pub(super) fn emit_dynamic_account_load(spec: AccountCheckSpec<'_>) -> proc_macro2::TokenStream {
-    let AccountCheckSpec {
+/// Emit the validation body for dynamic/compact accounts as an
+/// `AccountLoad::check` impl.
+pub(super) fn emit_dynamic_account_load(spec: AccountLoadSpec<'_>) -> proc_macro2::TokenStream {
+    let AccountLoadSpec {
         name,
         has_dynamic,
         disc_len,

@@ -174,7 +174,7 @@ impl<T: Owner + AsAccountView + crate::traits::Discriminator> Account<T> {
     #[inline(always)]
     pub fn close(&mut self, destination: &AccountView) -> Result<(), ProgramError> {
         let view = unsafe { &mut *(self as *mut Account<T> as *mut AccountView) };
-        crate::ops::close_program::close_program_account(
+        crate::ops::close::close_account(
             view,
             destination,
             <T as crate::traits::Discriminator>::DISCRIMINATOR.len(),
@@ -335,9 +335,10 @@ impl<T: AsAccountView + crate::account_load::AccountLoad + CheckOwner + StaticVi
     ) -> Result<(), solana_program_error::ProgramError> {
         T::check_owner(view).inspect_err(|_| {
             #[cfg(feature = "debug")]
-            crate::prelude::log(
-                &::alloc::format!("Owner check failed for account '{}'", field_name),
-            );
+            crate::prelude::log(&::alloc::format!(
+                "Owner check failed for account '{}'",
+                field_name
+            ));
         })?;
         T::check(view, field_name)?;
         Ok(())
@@ -360,7 +361,6 @@ impl<T> core::ops::DerefMut for Account<T> {
     }
 }
 
-
 // --- Forwarding impls: Account<T> delegates behavior to T ---
 
 impl<T: crate::account_init::AccountInit> crate::account_init::AccountInit for Account<T> {
@@ -375,9 +375,7 @@ impl<T: crate::account_init::AccountInit> crate::account_init::AccountInit for A
     }
 }
 
-impl<T: crate::ops::close_program::AccountClose> crate::ops::close_program::AccountClose
-    for Account<T>
-{
+impl<T: crate::ops::close::AccountClose> crate::ops::close::AccountClose for Account<T> {
     #[inline(always)]
     fn close(view: &mut AccountView, dest: &AccountView) -> solana_program_error::ProgramResult {
         T::close(view, dest)

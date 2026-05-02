@@ -31,9 +31,9 @@ pub(super) fn generate_account(
     let zc_definition = super::layout::emit_zc_definition(name, has_dynamic, &zc);
     let account_wrapper =
         super::layout::emit_account_wrapper(attrs, vis, name, disc_len, &zc.zc_path);
-    // Custom accounts skip Owner, Discriminator, AccountCheck — the user's
-    // check() method replaces all framework validation. Instead we generate
-    // a direct AccountLoad impl that delegates to Self::check().
+    // Custom accounts skip Owner, Discriminator, and generated AccountLoad checks —
+    // the user's check() method replaces all framework validation. Instead we
+    // generate a direct AccountLoad impl that delegates to Self::check().
     let (discriminator_impl, owner_impl, space_impl, account_check_impl, custom_account_load) =
         if custom {
             let space = super::traits::emit_space_impl(
@@ -77,7 +77,7 @@ pub(super) fn generate_account(
                 &zc.zc_mod,
             );
             let account_load =
-                super::traits::emit_dynamic_account_load(super::traits::AccountCheckSpec {
+                super::traits::emit_dynamic_account_load(super::traits::AccountLoadSpec {
                     name,
                     has_dynamic,
                     disc_len,
@@ -89,8 +89,8 @@ pub(super) fn generate_account(
             (disc, owner, space, quote::quote! {}, account_load)
         } else {
             // Fixed accounts: emit AccountLayout + composed checks.
-            // AccountCheck is NOT generated — AccountLoad::check is the
-            // single source of truth, composing Discriminator + DataLen + ZeroPod.
+            // AccountLoad::check is the single source of truth, composing
+            // Discriminator + DataLen + ZeroPod.
             let disc = super::traits::emit_discriminator_impl(name, disc_bytes, &bump_offset_impl);
             let owner = super::traits::emit_owner_impl(name);
             let space = super::traits::emit_space_impl(
@@ -127,7 +127,7 @@ pub(super) fn generate_account(
                 }
 
             };
-            // No AccountCheck generated — composed checks replace it.
+            // Composed checks are the single generated validation path.
             (disc, owner, space, quote::quote! {}, account_load)
         };
     let dynamic_impl_block =
@@ -186,13 +186,13 @@ pub(super) fn generate_account(
                 }
             }
 
-            impl quasar_lang::ops::close_program::AccountClose for #name {
+            impl quasar_lang::ops::close::AccountClose for #name {
                 #[inline(always)]
                 fn close(
                     view: &mut quasar_lang::__internal::AccountView,
                     dest: &quasar_lang::__internal::AccountView,
                 ) -> Result<(), quasar_lang::prelude::ProgramError> {
-                    quasar_lang::ops::close_program::close_program_account(
+                    quasar_lang::ops::close::close_account(
                         view,
                         dest,
                         <Self as quasar_lang::traits::Discriminator>::DISCRIMINATOR.len(),

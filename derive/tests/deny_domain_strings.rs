@@ -1,8 +1,9 @@
-//! Deny test: no domain knowledge in the derive macro.
+//! Deny test: derive macro boundary enforcement.
 //!
-//! The derive may know structural syntax (groups, fields, flags, trait consts)
-//! but must NOT know domain concepts (program names, account type names,
-//! CPI targets, layout semantics).
+//! The derive owns structural SPL group lowering (it knows *which* group kind
+//! maps to *which* param type) but must not contain literal SPL domain strings.
+//! Type and trait names are constructed via `format_ident!` splits so the derive
+//! source never contains the assembled identifiers.
 
 /// Domain strings that must never appear in derive/src/accounts/ source.
 ///
@@ -17,7 +18,9 @@ const BANNED: &[&str] = &[
     "is_migration_type",
     // SPL param types
     "TokenParams",
+    "TokenInitKind",
     "MintParams",
+    "MintInitParams",
     "SPL_TOKEN",
     "quasar_spl",
     // SPL trait names

@@ -1,38 +1,27 @@
-//! Init with token params inferred from sibling token(...) group.
 #![allow(unexpected_cfgs)]
-extern crate alloc;
-
-use {
-    quasar_derive::Accounts,
-    quasar_lang::prelude::*,
-    quasar_spl::{TokenProgram, *},
+use quasar_lang::prelude::*;
+use quasar_spl::{
+    AssociatedTokenProgram, Token, TokenProgram,
 };
 
 solana_address::declare_id!("11111111111111111111111111111112");
 
-#[account(discriminator = 10)]
-#[seeds(b"vault", authority: Address)]
-pub struct Vault {
-    pub authority: Address,
-    pub bump: u8,
-}
-
+// ERROR: only one init contributor group allowed per field
 #[derive(Accounts)]
-pub struct InitTokenVault {
+pub struct Bad {
     #[account(mut)]
     pub payer: Signer,
-
-    pub mint: Account<Mint>,
-
     #[account(mut,
         init, payer = payer,
-        address = Vault::seeds(payer.address()),
         token(mint = mint, authority = payer, token_program = token_program),
+        associated_token(mint = mint, authority = payer, token_program = token_program,
+            system_program = system_program, ata_program = ata_program),
     )]
     pub vault: Account<Token>,
-
+    pub mint: Account<quasar_spl::Mint>,
     pub token_program: Program<TokenProgram>,
     pub system_program: Program<SystemProgram>,
+    pub ata_program: Program<AssociatedTokenProgram>,
 }
 
 fn main() {}

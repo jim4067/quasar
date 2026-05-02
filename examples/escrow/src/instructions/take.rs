@@ -13,7 +13,7 @@ pub struct Take {
         has_one(maker),
         has_one(maker_ta_b),
         constraints(escrow.receive > 0),
-        close_program(dest = taker),
+        close(dest = taker),
         address = Escrow::seeds(maker.address())
     )]
     pub escrow: Account<Escrow>,

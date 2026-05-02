@@ -1,6 +1,6 @@
 //! Structural validation rules — no domain knowledge.
 
-use super::FieldSemantics;
+use super::{FieldSemantics, GroupArg, GroupKind};
 
 pub(super) fn validate_semantics(semantics: &[FieldSemantics]) -> syn::Result<()> {
     for sem in semantics {
@@ -11,6 +11,53 @@ pub(super) fn validate_semantics(semantics: &[FieldSemantics]) -> syn::Result<()
 
 fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
     let span = &sem.core.field;
+
+    // --- Migration exclusivity rules ---
+    if sem.is_migration {
+        if !sem.core.is_mut {
+            return Err(syn::Error::new_spanned(
+                span,
+                "`Migration<From, To>` requires `mut`",
+            ));
+        }
+        if sem.payer.is_none() {
+            return Err(syn::Error::new_spanned(
+                span,
+                "`Migration<From, To>` requires `payer = ...`",
+            ));
+        }
+        if sem.core.optional {
+            return Err(syn::Error::new_spanned(
+                span,
+                "`Option<Migration<...>>` is not supported — migration fields cannot be optional",
+            ));
+        }
+        if sem.has_init() {
+            return Err(syn::Error::new_spanned(
+                span,
+                "`init` cannot be used with `Migration<From, To>`",
+            ));
+        }
+        if sem.realloc.is_some() {
+            return Err(syn::Error::new_spanned(
+                span,
+                "`realloc` cannot be used with `Migration<From, To>`",
+            ));
+        }
+        for group in &sem.groups {
+            let kind = GroupKind::from_path(&group.path)?;
+            if matches!(kind, GroupKind::Close | GroupKind::Sweep) {
+                return Err(syn::Error::new_spanned(
+                    span,
+                    format!(
+                        "`{}` cannot be used with `Migration<From, To>` — migrating and closing \
+                         the same account is ordering-sensitive",
+                        kind.name()
+                    ),
+                ));
+            }
+        }
+    }
 
     // init requires mut
     if sem.has_init() && !sem.core.is_mut {
@@ -40,13 +87,13 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
             ));
         }
         for group in &sem.groups {
-            let name = group_last_segment(&group.path);
-            if matches!(name.as_str(), "close" | "close_program" | "sweep") {
+            let kind = GroupKind::from_path(&group.path)?;
+            if matches!(kind, GroupKind::Close | GroupKind::Sweep) {
                 return Err(syn::Error::new_spanned(
                     span,
                     format!(
                         "`dup` cannot be used with `{}` — mutation on aliased accounts is unsound",
-                        name
+                        kind.name()
                     ),
                 ));
             }
@@ -56,18 +103,19 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
     // Exit ops require mut
     if !sem.core.is_mut {
         for group in &sem.groups {
-            let name = group_last_segment(&group.path);
-            if matches!(name.as_str(), "close" | "close_program" | "sweep") {
+            let kind = GroupKind::from_path(&group.path)?;
+            if matches!(kind, GroupKind::Close | GroupKind::Sweep) {
                 return Err(syn::Error::new_spanned(
                     span,
-                    format!("`{}(...)` requires `mut`", name),
+                    format!("`{}(...)` requires `mut`", kind.name()),
                 ));
             }
         }
     }
 
-    // sweep-before-close hard error: close/close_program must come AFTER sweep
+    // sweep-before-close hard error: close must come AFTER sweep.
     validate_exit_ordering(sem)?;
+    validate_close_groups(sem)?;
 
     // dup requires /// CHECK: doc comment
     if sem.core.dup {
@@ -122,6 +170,28 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
         }
     }
 
+    // Zero or one init contributor per field. Multiple SPL init groups
+    // (e.g., token(...) + associated_token(...)) is a compile error.
+    if sem.has_init() {
+        let init_contributor_count = sem
+            .groups
+            .iter()
+            .filter(|group| {
+                matches!(
+                    GroupKind::from_path(&group.path),
+                    Ok(GroupKind::Token | GroupKind::Mint | GroupKind::AssociatedToken)
+                )
+            })
+            .count();
+        if init_contributor_count > 1 {
+            return Err(syn::Error::new_spanned(
+                span,
+                "only one init contributor group is allowed per field (e.g., `token(...)` or \
+                 `associated_token(...)`, not both)",
+            ));
+        }
+    }
+
     // init(idempotent) requires a validation group or address constraint
     if let Some(init) = &sem.init {
         if init.idempotent {
@@ -140,30 +210,81 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
     Ok(())
 }
 
-/// Validate exit action ordering: sweep must come before close/close_program.
-/// Also validate that sweep only pairs with token close, not close_program.
+/// Validate close args and reject ambiguous close forms.
+fn validate_close_groups(sem: &FieldSemantics) -> syn::Result<()> {
+    let has_sweep = sem
+        .groups
+        .iter()
+        .any(|group| matches!(GroupKind::from_path(&group.path), Ok(GroupKind::Sweep)));
+
+    for group in &sem.groups {
+        if !matches!(GroupKind::from_path(&group.path)?, GroupKind::Close) {
+            continue;
+        }
+
+        for arg in &group.args {
+            if !matches!(
+                arg.key.to_string().as_str(),
+                "dest" | "authority" | "token_program"
+            ) {
+                return Err(syn::Error::new_spanned(
+                    &arg.key,
+                    format!(
+                        "unknown `close(...)` arg `{}`. Valid forms: `close(dest = ...)` for \
+                         program accounts, or `close(dest = ..., authority = ..., token_program = \
+                         ...)` for token accounts",
+                        arg.key
+                    ),
+                ));
+            }
+        }
+
+        if !has_arg(&group.args, "dest") {
+            return Err(syn::Error::new_spanned(
+                &group.path,
+                "`close(...)` requires `dest = ...`",
+            ));
+        }
+
+        let has_authority = has_arg(&group.args, "authority");
+        let has_token_program = has_arg(&group.args, "token_program");
+        if has_authority != has_token_program {
+            return Err(syn::Error::new_spanned(
+                &group.path,
+                "`close(...)` must include both `authority = ...` and `token_program = ...` for \
+                 token accounts, or neither for program accounts",
+            ));
+        }
+
+        if has_sweep && !has_authority {
+            return Err(syn::Error::new_spanned(
+                &group.path,
+                "`sweep(...)` can only be paired with token close. Use `close(dest = ..., \
+                 authority = ..., token_program = ...)`",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate exit action ordering: sweep must come before close.
 fn validate_exit_ordering(sem: &FieldSemantics) -> syn::Result<()> {
     let span = &sem.core.field;
     let mut seen_close = false;
-    let mut has_sweep = false;
-    let mut has_close_program = false;
 
     for group in &sem.groups {
-        let name = group_last_segment(&group.path);
-        match name.as_str() {
-            "close" | "close_program" => {
+        let kind = GroupKind::from_path(&group.path)?;
+        match kind {
+            GroupKind::Close => {
                 seen_close = true;
-                if name == "close_program" {
-                    has_close_program = true;
-                }
             }
-            "sweep" => {
-                has_sweep = true;
+            GroupKind::Sweep => {
                 if seen_close {
                     return Err(syn::Error::new_spanned(
                         span,
-                        "`sweep(...)` must appear before `close(...)` / `close_program(...)` — \
-                         wrong ordering is always a bug",
+                        "`sweep(...)` must appear before `close(...)` — wrong ordering is always \
+                         a bug",
                     ));
                 }
             }
@@ -171,22 +292,9 @@ fn validate_exit_ordering(sem: &FieldSemantics) -> syn::Result<()> {
         }
     }
 
-    // sweep only pairs with token close, not close_program
-    if has_sweep && has_close_program {
-        return Err(syn::Error::new_spanned(
-            span,
-            "`sweep(...)` cannot be used with `close_program(...)` — sweep is for token \
-             accounts only",
-        ));
-    }
-
     Ok(())
 }
 
-/// Extract last path segment name from a group directive path.
-fn group_last_segment(path: &syn::Path) -> String {
-    path.segments
-        .last()
-        .map(|s| s.ident.to_string())
-        .unwrap_or_default()
+fn has_arg(args: &[GroupArg], key: &str) -> bool {
+    args.iter().any(|arg| arg.key == key)
 }

@@ -46,7 +46,7 @@ pub struct Migration<From, To> {
     _marker: PhantomData<(From, To)>,
 }
 
-impl<From: AsAccountView, To> AsAccountView for Migration<From, To> {
+impl<From, To> AsAccountView for Migration<From, To> {
     #[inline(always)]
     fn to_account_view(&self) -> &AccountView {
         &self.__view
@@ -64,65 +64,97 @@ impl<From, To: crate::traits::Space> crate::traits::Space for Migration<From, To
     const SPACE: usize = <To as crate::traits::Space>::SPACE;
 }
 
+impl<From, To> Migration<From, To> {
+    #[inline(always)]
+    fn view(&self) -> &AccountView {
+        &self.__view
+    }
+
+    #[inline(always)]
+    fn view_mut(&mut self) -> &mut AccountView {
+        &mut self.__view
+    }
+
+    #[inline(always)]
+    fn discriminator_is<Ty: crate::traits::Discriminator>(&self) -> bool {
+        Self::data_starts_with::<Ty>(unsafe { self.view().borrow_unchecked() })
+    }
+
+    #[inline(always)]
+    fn data_starts_with<Ty: crate::traits::Discriminator>(data: &[u8]) -> bool {
+        data.starts_with(<Ty as crate::traits::Discriminator>::DISCRIMINATOR)
+    }
+}
+
+impl<From, To> Migration<From, To>
+where
+    To: crate::traits::Space,
+{
+    /// Grow the account to the target type's space before the handler.
+    /// Called by generated parse body when the derive detects a Migration field.
+    #[inline(always)]
+    pub fn grow_to_target(
+        &mut self,
+        payer: &AccountView,
+        ctx: &crate::ops::OpCtxWithRent<'_>,
+    ) -> Result<(), ProgramError> {
+        let target_space = <To as crate::traits::Space>::SPACE;
+        if self.view().data_len() >= target_space {
+            return Ok(());
+        }
+        self.realloc_to_target(payer, ctx)
+    }
+
+    /// Normalize the account to exact target space in the epilogue.
+    /// Called by generated epilogue when the derive detects a Migration field.
+    #[inline(always)]
+    pub fn normalize_to_target(
+        &mut self,
+        payer: &AccountView,
+        ctx: &crate::ops::OpCtxWithRent<'_>,
+    ) -> Result<(), ProgramError> {
+        let target_space = <To as crate::traits::Space>::SPACE;
+        if self.view().data_len() == target_space {
+            return Ok(());
+        }
+        self.realloc_to_target(payer, ctx)
+    }
+
+    #[inline(always)]
+    fn realloc_to_target(
+        &mut self,
+        payer: &AccountView,
+        ctx: &crate::ops::OpCtxWithRent<'_>,
+    ) -> Result<(), ProgramError> {
+        crate::accounts::realloc_account(
+            self.view_mut(),
+            <To as crate::traits::Space>::SPACE,
+            payer,
+            Some(ctx.rent),
+        )
+    }
+}
+
+impl<From, To> Migration<From, To>
+where
+    To: crate::traits::Discriminator,
+{
+    /// Check if migration has been completed (discriminator matches `To`).
+    #[inline(always)]
+    pub fn is_migrated(&self) -> bool {
+        self.discriminator_is::<To>()
+    }
+}
+
 impl<From, To> crate::account_load::AccountLoad for Migration<From, To>
 where
-    From: AsAccountView
-        + CheckOwner
-        + crate::account_load::AccountLoad
-        + crate::traits::StaticView
-        + core::ops::Deref
-        + crate::traits::Discriminator
-        + crate::traits::Owner,
-    From::Target: Sized,
-    To: crate::traits::Space + core::ops::Deref + crate::traits::Discriminator + crate::traits::Owner,
-    To::Target: Sized,
+    From: CheckOwner + crate::account_load::AccountLoad,
+    To: crate::traits::Space + crate::traits::Discriminator,
 {
-    const HAS_BEFORE_INIT: bool = true;
-    const HAS_EXIT_VALIDATION: bool = true;
-
     #[inline(always)]
     fn check(view: &AccountView, field_name: &str) -> Result<(), ProgramError> {
-        // Validate against source type (owner + data checks).
         From::check_owner(view)?;
         From::check(view, field_name)
-    }
-
-    #[inline(always)]
-    fn before_init(
-        &mut self,
-        payer: Option<&AccountView>,
-        ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        let target_space = <To as crate::traits::Space>::SPACE;
-        let view = unsafe { &mut *(self as *mut Self as *mut AccountView) };
-        if view.data_len() < target_space {
-            let payer = payer.ok_or(ProgramError::NotEnoughAccountKeys)?;
-            crate::accounts::realloc_account(view, target_space, payer, Some(ctx.rent()?))?;
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn exit_validation(
-        &mut self,
-        payer: Option<&AccountView>,
-        ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        // Normalize to target size after the handler.
-        let view = unsafe { &mut *(self as *mut Self as *mut AccountView) };
-        let target_space = <To as crate::traits::Space>::SPACE;
-        if view.data_len() != target_space {
-            let payer = payer.ok_or(ProgramError::NotEnoughAccountKeys)?;
-            crate::accounts::realloc_account(view, target_space, payer, Some(ctx.rent()?))?;
-        }
-        // Verify .migrate() was called
-        if self.is_migrated() {
-            Ok(())
-        } else {
-            Err(ProgramError::Custom(
-                crate::error::QuasarError::AccountNotMigrated as u32,
-            ))
-        }
     }
 }
 
@@ -140,9 +172,8 @@ where
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         // SAFETY: check() validated disc + data_len during load.
-        // From is repr(transparent) over AccountView, so this cast is sound.
         let disc_len = <From as crate::traits::Discriminator>::DISCRIMINATOR.len();
-        unsafe { &*(self.__view.data_ptr().add(disc_len) as *const From::Target) }
+        unsafe { &*(self.view().data_ptr().add(disc_len) as *const From::Target) }
     }
 }
 
@@ -152,8 +183,7 @@ where
 
 impl<From, To> Migration<From, To>
 where
-    From: core::ops::Deref + crate::traits::Discriminator + crate::traits::Owner,
-    From::Target: Sized,
+    From: crate::traits::Discriminator + crate::traits::Owner,
     To: core::ops::Deref
         + crate::traits::Owner
         + crate::traits::Space
@@ -194,6 +224,45 @@ where
         "migration target type too large for sBPF 4KB stack frame"
     );
 
+    #[inline(always)]
+    fn assert_migration_contract() {
+        #[allow(clippy::let_unit_value)]
+        {
+            let _ = Self::_OWNER_EQ;
+            let _ = Self::_DISC_NEQ;
+            let _ = Self::_STACK_BUDGET;
+        }
+    }
+
+    #[inline(always)]
+    fn check_source_ready(&self) -> Result<(), ProgramError> {
+        if self.view().data_len() < <To as crate::traits::Space>::SPACE {
+            return Err(ProgramError::AccountDataTooSmall);
+        }
+        let data = unsafe { self.view().borrow_unchecked() };
+        if Self::data_starts_with::<To>(data) {
+            return Err(ProgramError::AccountAlreadyInitialized);
+        }
+        if !Self::data_starts_with::<From>(data) {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn write_target(&mut self, new_data: &To::Target) {
+        let view = self.view_mut();
+        let disc = <To as crate::traits::Discriminator>::DISCRIMINATOR;
+        unsafe {
+            core::ptr::copy_nonoverlapping(disc.as_ptr(), view.data_mut_ptr(), disc.len());
+            core::ptr::copy_nonoverlapping(
+                new_data as *const To::Target as *const u8,
+                view.data_mut_ptr().add(disc.len()),
+                core::mem::size_of::<To::Target>(),
+            );
+        }
+    }
+
     /// Migrate to the new schema. Writes the `To` discriminator + new data.
     ///
     /// The generated account lifecycle grows the account before the handler
@@ -211,40 +280,9 @@ where
     /// ```
     #[inline(always)]
     pub fn migrate(&mut self, new_data: To::Target) -> Result<(), ProgramError> {
-        // Force compile-time assertion evaluation.
-        #[allow(clippy::let_unit_value)]
-        {
-            let _ = Self::_OWNER_EQ;
-            let _ = Self::_DISC_NEQ;
-            let _ = Self::_STACK_BUDGET;
-        }
-
-        let view = unsafe { &mut *(&mut self.__view as *mut AccountView) };
-        let required = <To as crate::traits::Space>::SPACE;
-        if view.data_len() < required {
-            return Err(ProgramError::AccountDataTooSmall);
-        }
-        let data = unsafe { view.borrow_unchecked() };
-
-        // Already migrated → error (like Anchor's AccountAlreadyMigrated)
-        if data.starts_with(<To as crate::traits::Discriminator>::DISCRIMINATOR) {
-            return Err(ProgramError::AccountAlreadyInitialized);
-        }
-        // Source disc must still be present
-        if !data.starts_with(<From as crate::traits::Discriminator>::DISCRIMINATOR) {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        // Write target discriminator + data.
-        unsafe {
-            let disc = <To as crate::traits::Discriminator>::DISCRIMINATOR;
-            core::ptr::copy_nonoverlapping(disc.as_ptr(), view.data_mut_ptr(), disc.len());
-            core::ptr::copy_nonoverlapping(
-                &new_data as *const To::Target as *const u8,
-                view.data_mut_ptr().add(disc.len()),
-                core::mem::size_of::<To::Target>(),
-            );
-        }
+        Self::assert_migration_contract();
+        self.check_source_ready()?;
+        self.write_target(&new_data);
         Ok(())
     }
 
@@ -252,18 +290,12 @@ where
     /// Otherwise, writes the new data.
     #[inline(always)]
     pub fn migrate_idempotent(&mut self, new_data: To::Target) -> Result<(), ProgramError> {
-        let data = unsafe { self.__view.borrow_unchecked() };
-        if data.starts_with(<To as crate::traits::Discriminator>::DISCRIMINATOR) {
+        Self::assert_migration_contract();
+        if self.is_migrated() {
             return Ok(());
         }
-        self.migrate(new_data)
-    }
-
-    /// Check if migration has been completed (discriminator matches `To`).
-    #[inline(always)]
-    pub fn is_migrated(&self) -> bool {
-        let data = unsafe { self.__view.borrow_unchecked() };
-        data.starts_with(<To as crate::traits::Discriminator>::DISCRIMINATOR)
+        self.check_source_ready()?;
+        self.write_target(&new_data);
+        Ok(())
     }
 }
-

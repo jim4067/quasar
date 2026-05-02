@@ -1,11 +1,11 @@
-//! Init op: Phase 1 account initialization via system program CPI.
+//! Init op: account initialization via system program CPI.
 //!
-//! `init::Op` calls `AccountInit::init` on the field's behavior target when
+//! `init::Op` calls `AccountInit::init` on the account type when
 //! the account is owned by the system program (uninitialized). When
 //! `idempotent = true`, already-initialized accounts are silently accepted.
 
 use {
-    super::OpCtx,
+    super::OpCtxWithRent,
     crate::{
         account_init::{AccountInit, InitCtx},
         account_load::AccountLoad,
@@ -18,8 +18,8 @@ use {
 /// Init operation. Constructed by the derive macro from `init(...)` syntax.
 ///
 /// Generic `Params` defaults to `()` for plain `#[account]` types.
-/// Init contributors (token, mint, ata_init) populate params via capability
-/// traits before this op runs.
+/// Init contributors (token, mint, associated token) populate params via
+/// capability traits before this op runs.
 pub struct Op<'a, Params = ()> {
     pub payer: &'a AccountView,
     pub space: u64,
@@ -34,13 +34,12 @@ impl<'a, P> Op<'a, P> {
     pub fn apply<F: AccountLoad + AccountInit<InitParams<'a> = P>>(
         &self,
         slot: &mut AccountView,
-        ctx: &OpCtx<'_>,
+        ctx: &'a OpCtxWithRent<'a>,
     ) -> Result<(), ProgramError> {
         if crate::is_system_program(slot.owner()) {
+            // SAFETY: lifetime unification — all refs are live for the inlined call.
             let target = unsafe { &mut *(slot as *mut AccountView) };
             let program_id = unsafe { &*(ctx.program_id as *const solana_address::Address) };
-            let rent = ctx.rent()?;
-            let rent = unsafe { &*(rent as *const crate::sysvars::rent::Rent) };
             <F as AccountInit>::init(
                 InitCtx {
                     payer: self.payer,
@@ -48,7 +47,7 @@ impl<'a, P> Op<'a, P> {
                     program_id,
                     space: self.space,
                     signers: self.signers,
-                    rent,
+                    rent: ctx.rent,
                 },
                 &self.params,
             )?;
