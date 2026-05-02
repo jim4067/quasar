@@ -1,9 +1,7 @@
 use {
     quasar_derive::Accounts,
     quasar_lang::prelude::*,
-    quasar_spl::{
-        Mint, Token, TokenProgram,
-    },
+    quasar_spl::{Mint, Token, TokenProgram},
 };
 
 /// Tests closing a token account via the `close =` attribute.

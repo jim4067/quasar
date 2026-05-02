@@ -57,8 +57,7 @@ use {
         traits::*,
     },
     quasar_spl::{
-        InterfaceAccount, Mint, MintDataZc, Token, TokenDataZc, SPL_TOKEN_ID,
-        TOKEN_2022_ID,
+        InterfaceAccount, Mint, MintDataZc, Token, TokenDataZc, SPL_TOKEN_ID, TOKEN_2022_ID,
     },
     solana_address::Address,
     solana_program_error::ProgramError,

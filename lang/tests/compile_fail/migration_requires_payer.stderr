@@ -1,4 +1,4 @@
-error: `Migration<From, To>` requires `payer = ...`
+error: `Migration<From, To>` requires `payer = ...` (or add a field named `payer`)
   --> tests/compile_fail/migration_requires_payer.rs:25:5
    |
 25 | /     #[account(mut)]

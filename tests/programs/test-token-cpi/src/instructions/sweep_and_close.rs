@@ -1,9 +1,7 @@
 use {
     quasar_derive::Accounts,
     quasar_lang::prelude::*,
-    quasar_spl::{
-        Mint, Token, TokenProgram,
-    },
+    quasar_spl::{Mint, Token, TokenProgram},
 };
 
 /// Tests sweep + close -- transfers all tokens, then closes the account.
