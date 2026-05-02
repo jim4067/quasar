@@ -158,3 +158,32 @@ fn some_wrong_discriminator() {
     assert!(result.is_err(), "wrong disc on present optional");
     result.assert_error(ProgramError::InvalidAccountData);
 }
+
+/// Multiple `#[account(mut)] Option<T>` fields can all be `None` (program-ID
+/// sentinel) without triggering the duplicate-account borrow checker.
+#[test]
+fn multiple_mut_optional_none_sentinels() {
+    let mut svm = svm_misc();
+    let authority = Pubkey::new_unique();
+    let sentinel = quasar_test_misc::ID;
+
+    let ix: Instruction = OptionalMutAccountsInstruction {
+        authority,
+        first: sentinel,
+        second: sentinel,
+        third: sentinel,
+    }
+    .into();
+
+    let result = svm.process_instruction(
+        &ix,
+        &[
+            signer_account(authority),
+        ],
+    );
+    assert!(
+        result.is_ok(),
+        "all mut optionals as None sentinel should parse: {:?}",
+        result.raw_result
+    );
+}

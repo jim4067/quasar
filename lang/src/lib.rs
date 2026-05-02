@@ -305,19 +305,32 @@ pub mod __internal {
         } else {
             // Dup branch: borrow_state != NOT_BORROWED means the SVM
             // deduplicated this account slot.
-            if flags.is_ref_mut && !flags.allow_dup {
-                // Mutable dups without #[account(dup)] are rejected.
-                return Err(ProgramError::AccountBorrowFailed);
-            }
-
             let idx = (actual_header & 0xFF) as usize;
             if crate::utils::hint::unlikely(idx >= offset) {
                 return Err(ProgramError::InvalidAccountData);
             }
 
+            // Read the original AccountView first — `raw` in the dup branch only
+            // points to an 8-byte dup entry, not a full RuntimeAccount.
+            let orig_view = core::ptr::read(base.add(idx));
+
+            // Optional None sentinels (address == program_id) represent absent
+            // accounts, not real duplicate borrows. Skip borrow tracking for
+            // them to avoid false positives when multiple Option fields are
+            // simultaneously None.
+            if flags.is_optional && crate::keys_eq(orig_view.address(), program_id) {
+                core::ptr::write(base.add(offset), orig_view);
+                let input = input.add(core::mem::size_of::<u64>());
+                return Ok(input);
+            }
+
+            if flags.is_ref_mut && !flags.allow_dup {
+                // Mutable dups without #[account(dup)] are rejected.
+                return Err(ProgramError::AccountBorrowFailed);
+            }
+
             if flags.is_ref_mut {
                 // Mutable dup: claim exclusive access.
-                let orig_view = core::ptr::read(base.add(idx));
                 let bs_ptr = orig_view.account_ptr() as *mut u8;
                 let bs = *bs_ptr;
                 if crate::utils::hint::unlikely(bs != NOT_BORROWED) {
@@ -326,7 +339,6 @@ pub mod __internal {
                 *bs_ptr = 0;
             } else {
                 // Immutable dup: consume one immutable borrow slot.
-                let orig_view = core::ptr::read(base.add(idx));
                 let bs_ptr = orig_view.account_ptr() as *mut u8;
                 let bs = *bs_ptr;
                 if crate::utils::hint::unlikely(bs <= 1) {
@@ -335,7 +347,7 @@ pub mod __internal {
                 *bs_ptr = bs - 1;
             }
 
-            core::ptr::write(base.add(offset), core::ptr::read(base.add(idx)));
+            core::ptr::write(base.add(offset), orig_view);
             let input = input.add(core::mem::size_of::<u64>());
             Ok(input)
         }
