@@ -1,35 +1,35 @@
-//! Phased UFCS codegen — the core of v3.
+//! Phased codegen — emitting from typed execution plan.
 //!
 //! Generated parse body shape:
 //!
 //! ```text
-//! // Phase 1: pre-load
-//! let __ctx = OpCtx::new(...);
-//! // AddressVerify, init::Op::before_load, before_load groups
+//! // Rent (only when init/realloc/migration needs it)
+//! let __rent: Rent = Sysvar::get()?;  // or deserialized from Sysvar<Rent> field
+//! let __rent_ctx = OpCtxWithRent::new(&program_id, &__rent);
 //!
-//! // Phase 2: load all
+//! // Phase 1: load non-init fields
 //! let field_a = <Ty>::load(field_a, "field_a")?;
 //! let mut field_b = <Ty>::load_mut(field_b, "field_b")?;
 //!
-//! // Phase 3a: after_load (shared ref on locals)
-//! <token::Op<'_> as AccountOp<Ty>>::after_load(&op, &field_b, &__ctx)?;
+//! // Phase 2: address verify + init CPI for init fields
+//! init_op.apply::<Ty>(slot, &__rent_ctx)?;
 //!
-//! // Phase 3b: after_load_mut (mut ref on owned locals)
-//! <realloc::Op<'_> as AccountOp<Ty>>::after_load_mut(&op, &mut field_b, &__ctx)?;
+//! // Phase 3: load init fields
+//! let field_c = <Ty>::load(field_c, "field_c")?;
 //!
-//! // Phase 3c: user checks
-//! check_address_match(...)?;
+//! // Phase 4: checks, realloc, migration grow, user checks
+//! <Ty as TokenCheck>::check_token_view(view, ctx)?;
 //!
-//! Ok((Self { field_a, field_b }, bumps))
+//! Ok((Self { field_a, field_b, field_c }, bumps))
 //! ```
 
 use {
     super::{
-        super::resolve::{FieldKind, FieldSemantics, UserCheck},
-        ops::{
-            emit_op_struct, emit_op_type, emit_op_type_static, exit_arg, raw_slot_arg, typed_arg,
-            OpEmitCtx,
+        super::resolve::{
+            specs::{AccountsPlanTyped, EpilogueStep, PostLoadStep, PreLoadStep, RentPlan},
+            FieldKind, FieldSemantics, UserCheck,
         },
+        typed_emit,
     },
     crate::helpers::strip_generics,
     quote::{format_ident, quote},
@@ -37,72 +37,22 @@ use {
 
 pub(crate) fn emit_parse_body(
     semantics: &[FieldSemantics],
+    plan: &AccountsPlanTyped,
     cx: &super::EmitCx,
 ) -> syn::Result<proc_macro2::TokenStream> {
-    let op_ctx = OpEmitCtx {
-        field_names: semantics.iter().map(|s| s.core.ident.to_string()).collect(),
-    };
-    // Only emit OpCtx when ops/init/lifecycle/realloc actually need it.
-    let needs_ctx = semantics.iter().any(|sem| {
-        !sem.groups.is_empty()
-            || sem.init.is_some()
-            || sem.realloc.is_some()
-            || (sem.core.is_mut && sem.core.kind == FieldKind::Single && has_field_lifecycle(sem))
-    });
-    let rent_field = find_rent_sysvar_field(semantics);
-    let ctx_init = if !needs_ctx {
-        quote! {}
-    } else if let Some(rent_ident) = &rent_field {
-        quote! {
-            let __ctx = quasar_lang::ops::OpCtx::new_with_rent(
-                unsafe { &*(__program_id as *const quasar_lang::prelude::Address) },
-                unsafe {
-                    core::clone::Clone::clone(
-                        <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::from_bytes_unchecked(
-                            #rent_ident.borrow_unchecked()
-                        )
-                    )
-                },
-            );
-        }
-    } else {
-        // No Sysvar<Rent> field. If init/realloc exist, rent will be needed —
-        // fetch from sysvar. Otherwise, rent stays None.
-        let needs_rent = semantics.iter().any(|sem| {
-            sem.init.is_some()
-                || sem.realloc.is_some()
-                || (sem.core.is_mut
-                    && sem.core.kind == FieldKind::Single
-                    && has_field_lifecycle(sem))
-        });
-        if needs_rent {
-            quote! {
-                let __ctx = quasar_lang::ops::OpCtx::new_fetch_rent(unsafe {
-                    &*(__program_id as *const quasar_lang::prelude::Address)
-                })?;
-            }
-        } else {
-            quote! {
-                let __ctx = quasar_lang::ops::OpCtx::new(unsafe {
-                    &*(__program_id as *const quasar_lang::prelude::Address)
-                });
-            }
-        }
-    };
+    // Rent context from typed plan.
+    let ctx_init = emit_rent_context(&plan.rent, semantics);
     let bump_vars = emit_bump_vars(semantics);
 
-    // Phase ordering:
-    // 1. Load non-init fields (they exist on-chain, data available)
-    // 2. Address verify + init CPI for init fields (can reference loaded non-init
-    //    fields like config.namespace)
-    // 3. Load init fields (now created by init CPI)
-    // 4. Ops, validation, user checks
-    // Non-init groups that have before_load (rare but possible)
-    let non_init_before_load = emit_non_init_before_load(semantics, &op_ctx);
-    let load_non_init = emit_phase2_filtered(semantics, false);
-    let init_phase = emit_init_phase(semantics, &op_ctx)?;
-    let load_init = emit_phase2_filtered(semantics, true);
-    let phase3 = emit_phase3(semantics, &op_ctx);
+    // Phase 1: load non-init fields.
+    let load_non_init = emit_load_filtered(semantics, false);
+    // Phase 2: address verify + init CPI (from typed plan).
+    let init_phase = emit_init_phase_typed(&plan.fields, semantics)?;
+    // Phase 3: load init fields.
+    let load_init = emit_load_filtered(semantics, true);
+    // Phase 4: post-load steps (checks, realloc, migration grow, address verify,
+    // user checks).
+    let phase4 = emit_post_load_typed(&plan.fields, semantics);
     let bump_init = emit_bump_init(semantics, &cx.bumps_name);
 
     let construct_fields: Vec<proc_macro2::TokenStream> = semantics
@@ -116,98 +66,80 @@ pub(crate) fn emit_parse_body(
     Ok(quote! {
         #bump_vars
         #ctx_init
-        #(#non_init_before_load)*
         #(#load_non_init)*
         #(#init_phase)*
         #(#load_init)*
-        #(#phase3)*
+        #(#phase4)*
         Ok((Self { #(#construct_fields,)* }, #bump_init))
     })
 }
 
-// ==== Pre-load: before_load for non-init field groups ====
+// ==== Rent context ====
 
-fn emit_non_init_before_load(
-    semantics: &[FieldSemantics],
-    op_ctx: &OpEmitCtx,
-) -> Vec<proc_macro2::TokenStream> {
-    let mut stmts = Vec::new();
-    for sem in semantics {
-        if sem.has_init() {
-            continue;
+fn emit_rent_context(
+    rent_plan: &RentPlan,
+    _semantics: &[FieldSemantics],
+) -> proc_macro2::TokenStream {
+    match rent_plan {
+        RentPlan::NotNeeded => quote! {},
+        RentPlan::FromSysvarField { field } => {
+            quote! {
+                let __rent: quasar_lang::sysvars::rent::Rent = unsafe {
+                    core::clone::Clone::clone(
+                        <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::from_bytes_unchecked(
+                            #field.borrow_unchecked()
+                        )
+                    )
+                };
+                let __rent_ctx = quasar_lang::ops::OpCtxWithRent::new(
+                    unsafe { &*(__program_id as *const quasar_lang::prelude::Address) },
+                    &__rent,
+                );
+            }
         }
-        let ident = &sem.core.ident;
-        let ty = &sem.core.effective_ty;
-        for group in &sem.groups {
-            let op_static = emit_op_type_static(group);
-            let op_live = emit_op_type(group);
-            let op = emit_op_struct(group, raw_slot_arg, op_ctx);
-            stmts.push(quote! {
-                if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_BEFORE_LOAD {
-                    <#op_live as quasar_lang::ops::AccountOp<
-                        #ty,
-                    >>::before_load(
-                        &#op,
-                        #ident, &__ctx,
-                    )?;
-                }
-            });
+        RentPlan::FetchOnce => {
+            quote! {
+                let __rent: quasar_lang::sysvars::rent::Rent =
+                    <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::get()?;
+                let __rent_ctx = quasar_lang::ops::OpCtxWithRent::new(
+                    unsafe { &*(__program_id as *const quasar_lang::prelude::Address) },
+                    &__rent,
+                );
+            }
         }
     }
-    stmts
 }
 
-// ==== Init phase: address verify + init CPI (runs after non-init fields
-// loaded) ====
+// ==== Init phase (from typed plan) ====
 
-fn emit_init_phase(
+fn emit_init_phase_typed(
+    field_plans: &[super::super::resolve::specs::FieldPlan],
     semantics: &[FieldSemantics],
-    op_ctx: &OpEmitCtx,
 ) -> syn::Result<Vec<proc_macro2::TokenStream>> {
     let mut stmts = Vec::new();
 
-    for sem in semantics {
+    for (fp, sem) in field_plans.iter().zip(semantics.iter()) {
         let ident = &sem.core.ident;
         let ty = &sem.core.effective_ty;
 
-        // Address verification for init fields.
-        // Runs after non-init fields are loaded, so expressions like
-        // config.namespace work via Deref on loaded Account<T> fields.
-        if sem.has_init() {
-            if let Some(address_expr) = &sem.address {
-                let bump_var = format_ident!("__bumps_{}", ident);
-                let addr_var = format_ident!("__addr_{}", ident);
-                stmts.push(quote! {
-                    let #addr_var = #address_expr;
-                    #bump_var = quasar_lang::address::AddressVerify::verify(
-                        &#addr_var, #ident.address(), __program_id,
-                    )?;
-                });
-            }
-        }
-
-        // init → init::Op::before_load
-        if let Some(init) = &sem.init {
-            stmts.push(emit_init_before_load(sem, init, op_ctx)?);
-        }
-
-        // before_load for ALL groups on init fields.
-        // Args use typed_arg because referenced non-init fields are loaded.
-        if sem.has_init() {
-            for group in &sem.groups {
-                let op_static = emit_op_type_static(group);
-                let op_live = emit_op_type(group);
-                let op = emit_op_struct(group, typed_arg, op_ctx);
-                stmts.push(quote! {
-                    if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_BEFORE_LOAD {
-                        <#op_live as quasar_lang::ops::AccountOp<
-                            #ty,
-                        >>::before_load(
-                            &#op,
-                            #ident, &__ctx,
+        for step in &fp.pre_load {
+            match step {
+                PreLoadStep::VerifyAddress(addr_spec) => {
+                    let bump_var = format_ident!("__bumps_{}", ident);
+                    let addr_var = format_ident!("__addr_{}", ident);
+                    let addr_expr = &addr_spec.expr;
+                    stmts.push(quote! {
+                        let #addr_var = #addr_expr;
+                        #bump_var = quasar_lang::address::AddressVerify::verify(
+                            &#addr_var, #ident.address(), __program_id,
                         )?;
-                    }
-                });
+                    });
+                }
+                PreLoadStep::Init(init_plan) => {
+                    let has_address = sem.address.is_some();
+                    let ts = typed_emit::emit_init_plan(init_plan, ident, ty, has_address);
+                    stmts.push(ts);
+                }
             }
         }
     }
@@ -215,144 +147,180 @@ fn emit_init_phase(
     Ok(stmts)
 }
 
-fn emit_init_before_load(
-    sem: &FieldSemantics,
-    init: &super::super::resolve::InitDirective,
-    op_ctx: &OpEmitCtx,
-) -> syn::Result<proc_macro2::TokenStream> {
-    let ident = &sem.core.ident;
-    let ty = &sem.core.effective_ty;
+// ==== Post-load phase (from typed plan) ====
 
-    let payer = sem
-        .payer
-        .as_ref()
-        .ok_or_else(|| syn::Error::new_spanned(&sem.core.field, "init requires `payer`"))?;
+fn emit_post_load_typed(
+    field_plans: &[super::super::resolve::specs::FieldPlan],
+    semantics: &[FieldSemantics],
+) -> Vec<proc_macro2::TokenStream> {
+    let mut stmts = Vec::new();
 
-    // Space from Space::SPACE for program-owned accounts.
-    // When groups contribute init params (token, mint, ata_init), space is 0
-    // because the SPL init CPI handles allocation.
-    let has_param_contributors = !sem.groups.is_empty();
-    let space = if has_param_contributors {
-        quote! { 0u64 }
-    } else {
-        quote! {
-            <
-                <#ty as quasar_lang::account_load::AccountLoad>::BehaviorTarget
-                as quasar_lang::traits::Space
-            >::SPACE as u64
-        }
-    };
-    let idempotent = init.idempotent;
+    for (fp, sem) in field_plans.iter().zip(semantics.iter()) {
+        let ident = &sem.core.ident;
+        let ty = &sem.core.effective_ty;
+        let is_optional = sem.core.optional;
 
-    // Init params: when no groups, use default. When groups exist, construct
-    // default then apply each group's init params. The default() + apply pattern
-    // is needed for multi-group accumulation but works for single-group too.
-    let has_groups = !sem.groups.is_empty();
-    let params_block = if has_groups {
-        quote! {
-            let mut __init_params = <
-                <#ty as quasar_lang::account_load::AccountLoad>::BehaviorTarget
-                as quasar_lang::account_init::AccountInit
-            >::InitParams::default();
-        }
-    } else {
-        // No groups → default params (typically () for plain accounts)
-        quote! {
-            let __init_params = <
-                <#ty as quasar_lang::account_load::AccountLoad>::BehaviorTarget
-                as quasar_lang::account_init::AccountInit
-            >::InitParams::default();
-        }
-    };
-
-    // Gate apply_init_params on HAS_INIT_PARAMS — op struct only
-    // constructed when the group actually contributes init params.
-    let (op_locals, contributor_calls): (Vec<_>, Vec<_>) = sem
-        .groups
-        .iter()
-        .enumerate()
-        .map(|(i, group)| {
-            let op = emit_op_struct(group, typed_arg, op_ctx);
-            let op_static = emit_op_type_static(group);
-            let op_live = emit_op_type(group);
-            let op_name = format_ident!("__init_op_{}", i);
-            let local = quote! {};
-            let call = quote! {
-                if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_INIT_PARAMS {
-                    let #op_name = #op;
-                    <#op_live as quasar_lang::ops::AccountOp<#ty>>::apply_init_params(
-                        &#op_name,
-                        &mut __init_params as *mut _ as *mut u8,
-                    )?;
+        for step in &fp.post_load {
+            let call = match step {
+                PostLoadStep::TokenCheck(spec) => typed_emit::emit_token_check(spec, ident, ty),
+                PostLoadStep::MintCheck(spec) => typed_emit::emit_mint_check(spec, ident, ty),
+                PostLoadStep::AssociatedTokenCheck(spec) => {
+                    typed_emit::emit_associated_token_check(spec, ident, ty)
+                }
+                PostLoadStep::Realloc(spec) => {
+                    let payer_ident = &spec.payer.ident;
+                    let realloc_expr = &spec.new_space;
+                    quote! {
+                        {
+                            let __realloc_op = quasar_lang::ops::realloc::Op {
+                                space: (#realloc_expr) as usize,
+                                payer: #payer_ident.to_account_view(),
+                            };
+                            __realloc_op.apply::<#ty>(&mut #ident, &__rent_ctx)?;
+                        }
+                    }
+                }
+                PostLoadStep::MigrationGrow(spec) => {
+                    let payer_ident = &spec.payer.ident;
+                    quote! {
+                        quasar_lang::accounts::migration::Migration::grow_to_target(
+                            &mut #ident,
+                            #payer_ident.to_account_view(),
+                            &__rent_ctx,
+                        )?;
+                    }
+                }
+                PostLoadStep::VerifyExistingAddress(addr_spec) => {
+                    let bump_var = format_ident!("__bumps_{}", ident);
+                    let addr_expr = &addr_spec.expr;
+                    let use_fast_path = is_validated_account_type(ty);
+                    let verify_method = if use_fast_path {
+                        quote! { verify_existing }
+                    } else {
+                        quote! { verify }
+                    };
+                    quote! {
+                        {
+                            let __addr = #addr_expr;
+                            #bump_var = quasar_lang::address::AddressVerify::#verify_method(
+                                &__addr, #ident.to_account_view().address(), __program_id,
+                            )?;
+                        }
+                    }
                 }
             };
-            (local, call)
-        })
-        .unzip();
 
-    let init_call = quote! {
-        let __init_op = quasar_lang::ops::init::Op {
-            payer: #payer.to_account_view(),
-            space: #space,
-            signers: __signers,
-            params: __init_params,
-            idempotent: #idempotent,
+            let needs_mut = matches!(
+                step,
+                PostLoadStep::Realloc(_) | PostLoadStep::MigrationGrow(_)
+            );
+            stmts.push(wrap_optional(is_optional, ident, &call, needs_mut));
+        }
+
+        // User checks (still sourced from semantics — they're structural, not op-group
+        // based).
+        for check in &sem.user_checks {
+            let check_stmts = emit_user_check(sem, check);
+            let combined = quote! { #(#check_stmts)* };
+            stmts.push(wrap_optional(is_optional, ident, &combined, false));
+        }
+    }
+
+    stmts
+}
+
+// ==== Epilogue (from typed plan) ====
+
+pub(crate) fn emit_epilogue(
+    semantics: &[FieldSemantics],
+    plan: &AccountsPlanTyped,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let mut exit_stmts = Vec::new();
+    let needs_lifecycle_rent = plan.fields.iter().any(|fp| {
+        fp.epilogue
+            .iter()
+            .any(|step| matches!(step, EpilogueStep::MigrationVerifyAndNormalize(_)))
+    });
+
+    for (fp, sem) in plan.fields.iter().zip(semantics.iter()) {
+        let ident = &sem.core.ident;
+        let ty = &sem.core.effective_ty;
+
+        for step in &fp.epilogue {
+            let stmt = match step {
+                EpilogueStep::TokenSweep(spec) => typed_emit::emit_token_sweep(spec, ident, ty),
+                EpilogueStep::TokenClose(spec) => typed_emit::emit_token_close(spec, ident, ty),
+                EpilogueStep::ProgramClose(spec) => typed_emit::emit_program_close(spec, ident, ty),
+                EpilogueStep::MigrationVerifyAndNormalize(spec) => {
+                    let payer_ident = &spec.payer.ident;
+                    quote! {
+                        if !quasar_lang::accounts::migration::Migration::is_migrated(&self.#ident) {
+                            return Err(ProgramError::Custom(
+                                quasar_lang::error::QuasarError::AccountNotMigrated as u32,
+                            ));
+                        }
+                        quasar_lang::accounts::migration::Migration::normalize_to_target(
+                            &mut self.#ident,
+                            self.#payer_ident.to_account_view(),
+                            &__rent_ctx,
+                        )?;
+                    }
+                }
+            };
+            exit_stmts.push(stmt);
+        }
+    }
+
+    if exit_stmts.is_empty() {
+        return Ok(quote! {});
+    }
+
+    let ctx_init = if needs_lifecycle_rent {
+        let rent_field = match &plan.rent {
+            RentPlan::FromSysvarField { field } => Some(field.clone()),
+            _ => None,
         };
-        quasar_lang::ops::AccountOp::<#ty>::before_load(&__init_op, #ident, &__ctx)?;
-    };
-
-    let inner_body = quote! {
-            #params_block
-            #(#op_locals)*
-            #(#contributor_calls)*
-            #init_call
-    };
-
-    // Build signers from address spec if present (PDA init).
-    // AddressVerify ran before this, so __bumps_<ident> is populated.
-    let body = if sem.address.is_some() {
-        let bump_var = format_ident!("__bumps_{}", ident);
-        let addr_var = format_ident!("__addr_{}", ident);
-        quote! {
-            let __bump_ref: &[u8] = &[#bump_var];
-            quasar_lang::address::AddressVerify::with_signer_seeds(
-                &#addr_var,
-                __bump_ref,
-                |__maybe_signer| -> Result<(), quasar_lang::prelude::ProgramError> {
-                    let __signers = match &__maybe_signer {
-                        Some(__signer) => core::slice::from_ref(__signer),
-                        None => &[] as &[quasar_lang::cpi::Signer<'_, '_>],
-                    };
-                    #inner_body
-                    Ok(())
-                },
-            )?;
-        }
-    } else {
-        quote! {
-            let __signers: &[quasar_lang::cpi::Signer<'_, '_>] = &[];
-            #inner_body
-        }
-    };
-
-    // For idempotent init, gate the entire block on is_system_program.
-    // When the account already exists, skip all init param construction,
-    // op struct building, and before_load — pure zero overhead on the hot path.
-    // Non-idempotent init must always run (needs the error on existing accounts).
-    if idempotent {
-        Ok(quote! {
-            if quasar_lang::is_system_program(#ident.owner()) {
-                #body
+        let rent_fetch = if let Some(rent_ident) = rent_field {
+            quote! {
+                let __rent: quasar_lang::sysvars::rent::Rent =
+                    core::clone::Clone::clone(self.#rent_ident.get());
             }
-        })
+        } else {
+            quote! {
+                let __rent: quasar_lang::sysvars::rent::Rent =
+                    <quasar_lang::sysvars::rent::Rent as quasar_lang::sysvars::Sysvar>::get()?;
+            }
+        };
+        quote! {
+            #rent_fetch
+            let __rent_ctx = quasar_lang::ops::OpCtxWithRent::new(&crate::ID, &__rent);
+        }
     } else {
-        Ok(quote! { { #body } })
+        quote! {}
+    };
+
+    Ok(quote! {
+        #[inline(always)]
+        fn epilogue(&mut self) -> Result<(), ProgramError> {
+            #ctx_init
+            #(#exit_stmts)*
+            Ok(())
+        }
+    })
+}
+
+pub(crate) fn emit_has_epilogue_typed(plan: &AccountsPlanTyped) -> proc_macro2::TokenStream {
+    let has_epilogue = plan.fields.iter().any(|fp| !fp.epilogue.is_empty());
+    if has_epilogue {
+        quote! { true }
+    } else {
+        quote! { false }
     }
 }
 
-// ==== Phase 2: load (split into non-init first, then init) ====
+// ==== Load phase ====
 
-fn emit_phase2_filtered(
+fn emit_load_filtered(
     semantics: &[FieldSemantics],
     init_only: bool,
 ) -> Vec<proc_macro2::TokenStream> {
@@ -374,9 +342,6 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
         let base = strip_generics(inner_ty);
         return quote! { let #ident = #base::from_account_view(#ident)?; };
     }
-
-    // Always use validated load — no unchecked bypass.
-    // init::Op writes discriminator + data, so load() succeeds after valid init.
 
     if sem.core.optional {
         return if sem.core.is_mut {
@@ -409,168 +374,7 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
     }
 }
 
-// ==== Phase 3: validate + mutate + user checks ====
-
-fn emit_phase3(semantics: &[FieldSemantics], op_ctx: &OpEmitCtx) -> Vec<proc_macro2::TokenStream> {
-    let mut stmts = Vec::new();
-
-    for sem in semantics {
-        let ident = &sem.core.ident;
-        let ty = &sem.core.effective_ty;
-        let is_optional = sem.core.optional;
-
-        // Phase 3a: after_load — gated on HAS_AFTER_LOAD.
-        // Op struct only constructed when the gate is true.
-        for group in &sem.groups {
-            let op_static = emit_op_type_static(group);
-            let op_live = emit_op_type(group);
-            let op = emit_op_struct(group, typed_arg, op_ctx);
-            let call = quote! {
-                if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_AFTER_LOAD {
-                    <#op_live as quasar_lang::ops::AccountOp<
-                        #ty,
-                    >>::after_load(&#op, &#ident, &__ctx)?;
-                }
-            };
-            stmts.push(wrap_optional(is_optional, ident, &call, false));
-        }
-
-        // Phase 3b: after_load_mut — gated on HAS_AFTER_LOAD_MUT.
-        if sem.core.is_mut && sem.core.kind == FieldKind::Single {
-            for group in &sem.groups {
-                let op_static = emit_op_type_static(group);
-                let op_live = emit_op_type(group);
-                let op = emit_op_struct(group, typed_arg, op_ctx);
-                let call = quote! {
-                    if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_AFTER_LOAD_MUT {
-                        <#op_live as quasar_lang::ops::AccountOp<
-                            #ty,
-                        >>::after_load_mut(&#op, &mut #ident, &__ctx)?;
-                    }
-                };
-                stmts.push(wrap_optional(is_optional, ident, &call, true));
-            }
-
-            // Realloc op (Phase 3b) — emitted when field has `realloc = expr`
-            if let Some(realloc_expr) = &sem.realloc {
-                let payer = sem.payer.as_ref().expect("realloc requires payer");
-                // Build crate path via ident to keep domain strings out of derive source.
-                let spl_crate = format_ident!("quasar_{}", "spl");
-                let call = quote! {
-                    {
-                        let __realloc_op = #spl_crate::ops::realloc::Op {
-                            space: (#realloc_expr) as usize,
-                            payer: #payer.to_account_view(),
-                        };
-                        <#spl_crate::ops::realloc::Op<'_> as quasar_lang::ops::AccountOp<
-                            #ty,
-                        >>::after_load_mut(&__realloc_op, &mut #ident, &__ctx)?;
-                    }
-                };
-                stmts.push(wrap_optional(is_optional, ident, &call, true));
-            }
-
-            if has_field_lifecycle(sem) {
-                // Field lifecycle before-handler hook. Migration uses this to
-                // grow the account before handler code writes the target
-                // layout.
-                let payer_option = match &sem.payer {
-                    Some(p) => quote! { Some(#p.to_account_view()) },
-                    None => quote! { None },
-                };
-                let lifecycle_call = quote! {
-                    if <#ty as quasar_lang::traits::FieldLifecycle>::HAS_LIFECYCLE_BEFORE {
-                        quasar_lang::traits::FieldLifecycle::before_lifecycle(
-                            &mut #ident,
-                            #payer_option,
-                            &__ctx,
-                        )?;
-                    }
-                };
-                stmts.push(wrap_optional(is_optional, ident, &lifecycle_call, true));
-            }
-        }
-
-        // Phase 3c: address verification for NON-init fields (after load).
-        // Account<T>, InterfaceAccount<T>, Migration<From,To> use verify_existing
-        // (fast path) — safe because owner+disc validation during load guarantees
-        // the program created this account with the canonical bump.
-        // UncheckedAccount, SystemAccount, Signer use full verify() — no owner
-        // validation means non-canonical bumps could exist.
-        if !sem.has_init() {
-            if let Some(address_expr) = &sem.address {
-                let bump_var = format_ident!("__bumps_{}", ident);
-                let use_fast_path = is_validated_account_type(&sem.core.effective_ty);
-                let verify_method = if use_fast_path {
-                    quote! { verify_existing }
-                } else {
-                    quote! { verify }
-                };
-                let call = quote! {
-                    {
-                        let __addr = #address_expr;
-                        #bump_var = quasar_lang::address::AddressVerify::#verify_method(
-                            &__addr, #ident.to_account_view().address(), __program_id,
-                        )?;
-                    }
-                };
-                stmts.push(wrap_optional(is_optional, ident, &call, false));
-            }
-        }
-
-        // Phase 3d: user checks
-        for check in &sem.user_checks {
-            let check_stmts = emit_user_check(sem, check);
-            let combined = quote! { #(#check_stmts)* };
-            stmts.push(wrap_optional(is_optional, ident, &combined, false));
-        }
-
-        // REQUIRES_MUT compile-time assertions
-        for group in &sem.groups {
-            let op_static = emit_op_type_static(group);
-            let path = &group.path;
-            let is_mut = sem.core.is_mut;
-            stmts.push(quote! {
-                const _: () = assert!(
-                    !<#op_static as quasar_lang::ops::AccountOp<#ty>>::REQUIRES_MUT
-                    || #is_mut,
-                    concat!(
-                        "op `", stringify!(#path), "` requires `mut` on field `",
-                        stringify!(#ty), "`"
-                    ),
-                );
-            });
-        }
-    }
-
-    stmts
-}
-
-/// Wrap a code block in `if let Some(ref field) = field { ... }` for optional
-/// accounts. `needs_mut` uses `ref mut` instead.
-fn wrap_optional(
-    is_optional: bool,
-    ident: &syn::Ident,
-    body: &proc_macro2::TokenStream,
-    needs_mut: bool,
-) -> proc_macro2::TokenStream {
-    if !is_optional {
-        return body.clone();
-    }
-    if needs_mut {
-        quote! {
-            if let Some(ref mut #ident) = #ident {
-                #body
-            }
-        }
-    } else {
-        quote! {
-            if let Some(ref #ident) = #ident {
-                #body
-            }
-        }
-    }
-}
+// ==== User checks (structural — not op-group based) ====
 
 fn emit_user_check(sem: &FieldSemantics, check: &UserCheck) -> Vec<proc_macro2::TokenStream> {
     let field_ident = &sem.core.ident;
@@ -621,106 +425,33 @@ fn emit_user_check(sem: &FieldSemantics, check: &UserCheck) -> Vec<proc_macro2::
     stmts
 }
 
-// ==== Epilogue (Phase 4) ====
-
-pub(crate) fn emit_epilogue(
-    semantics: &[FieldSemantics],
-    op_ctx: &OpEmitCtx,
-) -> syn::Result<proc_macro2::TokenStream> {
-    let mut exit_stmts = Vec::new();
-
-    for sem in semantics {
-        let ty = &sem.core.effective_ty;
-        let field = &sem.core.ident;
-
-        // Phase 4: exit — unconditional emission, symmetric with before_load.
-        // Op-arg grammar guarantees exit_arg always produces valid code.
-        // Gated on HAS_EXIT — dead code eliminated by LLVM.
-        for group in &sem.groups {
-            let op_static = emit_op_type_static(group);
-            let op_live = emit_op_type(group);
-            let op = emit_op_struct(group, exit_arg, op_ctx);
-            exit_stmts.push(quote! {
-                if <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_EXIT {
-                    <#op_live as quasar_lang::ops::AccountOp<
-                        #ty,
-                    >>::exit(&#op, &mut self.#field, &__ctx)?;
-                }
-            });
-        }
-
-        // FieldLifecycle exit check for types with lifecycle behavior.
-        if sem.core.is_mut && sem.core.kind == FieldKind::Single && has_field_lifecycle(sem) {
-            let payer_option = match &sem.payer {
-                Some(p) => quote! { Some(self.#p.to_account_view()) },
-                None => quote! { None },
-            };
-            exit_stmts.push(quote! {
-                if <#ty as quasar_lang::traits::FieldLifecycle>::HAS_LIFECYCLE_EXIT {
-                    quasar_lang::traits::FieldLifecycle::exit_lifecycle(
-                        &mut self.#field,
-                        #payer_option,
-                        &__ctx,
-                    )?;
-                }
-            });
-        }
-    }
-
-    if exit_stmts.is_empty() {
-        return Ok(quote! {});
-    }
-
-    Ok(quote! {
-        #[inline(always)]
-        fn epilogue(&mut self) -> Result<(), ProgramError> {
-            let __ctx = quasar_lang::ops::OpCtx::new(&crate::ID);
-            #(#exit_stmts)*
-            Ok(())
-        }
-    })
-}
-
-pub(crate) fn emit_has_epilogue(semantics: &[FieldSemantics]) -> proc_macro2::TokenStream {
-    let mut exprs: Vec<proc_macro2::TokenStream> = Vec::new();
-
-    // Op-level HAS_EXIT
-    for sem in semantics {
-        let ty = sem.core.effective_ty.clone();
-        for group in &sem.groups {
-            let op_static = emit_op_type_static(group);
-            exprs.push(quote! {
-                <#op_static as quasar_lang::ops::AccountOp<#ty>>::HAS_EXIT
-            });
-        }
-
-        // FieldLifecycle exit for types with lifecycle behavior.
-        if sem.core.is_mut && sem.core.kind == FieldKind::Single && has_field_lifecycle(sem) {
-            exprs.push(quote! {
-                <#ty as quasar_lang::traits::FieldLifecycle>::HAS_LIFECYCLE_EXIT
-            });
-        }
-    }
-
-    if exprs.is_empty() {
-        quote! { false }
-    } else {
-        quote! { #(#exprs)||* }
-    }
-}
-
-fn has_field_lifecycle(sem: &FieldSemantics) -> bool {
-    match &sem.core.effective_ty {
-        syn::Type::Path(tp) => tp
-            .path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "Migration"),
-        _ => false,
-    }
-}
-
 // ==== Helpers ====
+
+/// Wrap a code block in `if let Some(ref field) = field { ... }` for optional
+/// accounts.
+fn wrap_optional(
+    is_optional: bool,
+    ident: &syn::Ident,
+    body: &proc_macro2::TokenStream,
+    needs_mut: bool,
+) -> proc_macro2::TokenStream {
+    if !is_optional {
+        return body.clone();
+    }
+    if needs_mut {
+        quote! {
+            if let Some(ref mut #ident) = #ident {
+                #body
+            }
+        }
+    } else {
+        quote! {
+            if let Some(ref #ident) = #ident {
+                #body
+            }
+        }
+    }
+}
 
 fn emit_bump_vars(semantics: &[FieldSemantics]) -> proc_macro2::TokenStream {
     let vars: Vec<proc_macro2::TokenStream> = semantics
@@ -779,36 +510,7 @@ pub(crate) fn emit_bump_struct_def(
     }
 }
 
-/// Find a field with type `Sysvar<Rent>` in the accounts struct.
-fn find_rent_sysvar_field(semantics: &[FieldSemantics]) -> Option<syn::Ident> {
-    for sem in semantics {
-        if let syn::Type::Path(tp) = &sem.core.effective_ty {
-            if let Some(last) = tp.path.segments.last() {
-                if last.ident == "Sysvar" {
-                    if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
-                        for arg in &args.args {
-                            if let syn::GenericArgument::Type(syn::Type::Path(inner)) = arg {
-                                if inner
-                                    .path
-                                    .segments
-                                    .last()
-                                    .is_some_and(|s| s.ident == "Rent")
-                                {
-                                    return Some(sem.core.ident.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Returns true for account types with owner + discriminator validation
-/// (Account<T>, InterfaceAccount<T>, Migration<From,To>). These are safe for
-/// verify_existing because the program created them with the canonical bump.
+/// Returns true for account types with owner + discriminator validation.
 fn is_validated_account_type(ty: &syn::Type) -> bool {
     use crate::helpers::extract_generic_inner_type;
     extract_generic_inner_type(ty, "Account").is_some()

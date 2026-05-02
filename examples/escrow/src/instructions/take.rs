@@ -1,7 +1,7 @@
 use {
     crate::{events::TakeEvent, state::Escrow},
-    quasar_lang::{ops::close_program, prelude::*},
-    quasar_spl::{ops::token, Mint, Token, TokenCpi, TokenProgram},
+    quasar_lang::prelude::*,
+    quasar_spl::{Mint, Token, TokenCpi, TokenProgram},
 };
 
 #[derive(Accounts)]
@@ -13,7 +13,7 @@ pub struct Take {
         has_one(maker),
         has_one(maker_ta_b),
         constraints(escrow.receive > 0),
-        close_program(dest = taker),
+        close(dest = taker),
         address = Escrow::seeds(maker.address())
     )]
     pub escrow: Account<Escrow>,
@@ -21,11 +21,11 @@ pub struct Take {
     pub maker: UncheckedAccount,
     pub mint_a: Account<Mint>,
     pub mint_b: Account<Mint>,
-    #[account(init(idempotent), payer = taker, token(mint = mint_a, authority = taker, token_program = token_program))]
+    #[account(init(idempotent), payer = taker, token(mint = mint_a, authority = taker))]
     pub taker_ta_a: Account<Token>,
     #[account(mut)]
     pub taker_ta_b: Account<Token>,
-    #[account(init(idempotent), payer = taker, token(mint = mint_b, authority = maker, token_program = token_program))]
+    #[account(init(idempotent), payer = taker, token(mint = mint_b, authority = maker))]
     pub maker_ta_b: Account<Token>,
     #[account(mut)]
     pub vault_ta_a: Account<Token>,

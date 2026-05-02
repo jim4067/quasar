@@ -1,0 +1,5 @@
+error: `mint` does not accept `None`
+  --> tests/compile_fail/bare_op_arg_none.rs:12:28
+   |
+12 |     #[account(token(mint = None, authority = authority))]
+   |                            ^^^^

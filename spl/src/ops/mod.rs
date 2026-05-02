@@ -1,13 +1,9 @@
-//! Op-dispatch implementations for SPL token operations.
+//! SPL token operations.
 //!
-//! Each module provides an `Op` struct implementing `AccountOp<F>` from
-//! `quasar_lang::ops`. The derive macro emits UFCS calls to these ops
-//! based on the `#[account(...)]` attribute syntax.
+//! Capability traits (`capabilities`) and context structs (`ctx`) are the
+//! public dispatch surface. The derive emits direct capability trait calls.
 
-pub mod associated_token;
-pub mod ata_init;
+pub mod capabilities;
 pub mod close;
-pub mod mint;
-pub mod realloc;
+pub mod ctx;
 pub mod sweep;
-pub mod token;

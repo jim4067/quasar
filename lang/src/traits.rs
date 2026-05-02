@@ -11,7 +11,6 @@
 //! **Parsing and validation** — drive the account deserialization pipeline:
 //! - `ParseAccounts` — parse and validate a set of accounts from raw
 //!   `AccountView` slices
-//! - `AccountCheck` — runtime validation hook called during parsing
 //! - `CheckOwner` — verify an account's on-chain owner matches expectations
 //! - `Owners` — declare valid on-chain owners for interface account types
 //! - `AccountCount` — declare how many accounts a struct consumes
@@ -90,17 +89,6 @@ pub trait Discriminator {
 /// Used by: `create_account` CPI to allocate the correct account size.
 pub trait Space {
     const SPACE: usize;
-}
-
-/// Runtime validation hook called during account parsing.
-///
-/// `check()` runs after owner/header validation and before pointer casts.
-/// The default implementation is a no-op.
-pub trait AccountCheck {
-    #[inline(always)]
-    fn check(_view: &AccountView) -> Result<(), ProgramError> {
-        Ok(())
-    }
 }
 
 /// Declares the number of accounts consumed by a struct during parsing.
@@ -230,6 +218,24 @@ impl<T: Owner> CheckOwner for T {
 pub trait Owners {
     /// Static slice of valid owner program addresses.
     fn owners() -> &'static [Address];
+
+    /// Check if an account is owned by one of the accepted owners.
+    ///
+    /// Implementors with a small fixed owner set can override this to avoid
+    /// slice iteration in hot account-parse paths.
+    #[inline(always)]
+    fn check_owner(view: &AccountView) -> Result<(), ProgramError> {
+        let owner = view.owner();
+        let owners = Self::owners();
+        let mut i = 0;
+        while i < owners.len() {
+            if crate::keys_eq(owner, &owners[i]) {
+                return Ok(());
+            }
+            i += 1;
+        }
+        Err(ProgramError::IllegalOwner)
+    }
 }
 
 /// Marker trait for account types with a `#[seeds]` definition.
@@ -292,32 +298,6 @@ pub trait Event {
     const DATA_SIZE: usize;
     fn write_data(&self, buf: &mut [u8]);
     fn emit(&self, f: impl FnOnce(&[u8]) -> Result<(), ProgramError>) -> Result<(), ProgramError>;
-}
-
-/// Generic field lifecycle trait. The derive calls exit_lifecycle on all
-/// mut fields in the epilogue. Most account types use the default no-op.
-/// Migration<From, To> overrides to enforce .migrate() was called.
-pub trait FieldLifecycle {
-    const HAS_LIFECYCLE_BEFORE: bool = false;
-    const HAS_LIFECYCLE_EXIT: bool = false;
-
-    #[inline(always)]
-    fn before_lifecycle(
-        &mut self,
-        _payer: Option<&AccountView>,
-        _ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn exit_lifecycle(
-        &mut self,
-        _payer: Option<&AccountView>,
-        _ctx: &crate::ops::OpCtx<'_>,
-    ) -> Result<(), ProgramError> {
-        Ok(())
-    }
 }
 
 /// Verify that the actual account count matches the expected count.

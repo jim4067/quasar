@@ -1,12 +1,12 @@
 use {
     quasar_derive::Accounts,
     quasar_lang::prelude::*,
-    quasar_spl::{ops::associated_token, Mint, Token, TokenProgram},
+    quasar_spl::{Mint, Token, TokenProgram},
 };
 
 #[derive(Accounts)]
 pub struct ValidateAtaCheck {
-    #[account(associated_token(mint = mint, authority = wallet, token_program = token_program))]
+    #[account(associated_token(mint = mint, authority = wallet))]
     pub ata: Account<Token>,
     pub mint: Account<Mint>,
     pub wallet: Signer,

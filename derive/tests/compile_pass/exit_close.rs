@@ -1,10 +1,8 @@
-//! Exit close via close_program::Op.
+//! Exit close via close account capability.
 #![allow(unexpected_cfgs)]
 extern crate alloc;
 
-use quasar_lang::prelude::*;
-use quasar_lang::ops::close_program;
-use quasar_derive::Accounts;
+use {quasar_derive::Accounts, quasar_lang::prelude::*};
 
 solana_address::declare_id!("11111111111111111111111111111112");
 
@@ -19,7 +17,7 @@ pub struct CloseAccounts {
     pub authority: Signer,
 
     #[account(mut,
-        close_program(dest = authority),
+        close(dest = authority),
     )]
     pub old_data: Account<OldData>,
 }

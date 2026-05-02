@@ -85,6 +85,7 @@ impl HeaderPlan {
 
 pub(crate) fn build_accounts_plan(
     semantics: &[resolve::FieldSemantics],
+    typed_plan: &resolve::specs::AccountsPlanTyped,
     cx: &emit::EmitCx,
 ) -> syn::Result<AccountsPlan> {
     let fields = build_parse_fields(semantics);
@@ -92,7 +93,7 @@ pub(crate) fn build_accounts_plan(
         parse_steps: emit_parse_account_steps(&fields),
         count_expr: emit_count_expr(&fields),
         typed_seed_asserts: quote! {},
-        parse_body: emit_full_parse_body(semantics, &fields, cx)?,
+        parse_body: emit_full_parse_body(semantics, typed_plan, &fields, cx)?,
     })
 }
 
@@ -244,10 +245,11 @@ fn emit_count_expr(fields: &[ParseFieldPlan]) -> proc_macro2::TokenStream {
 
 fn emit_full_parse_body(
     semantics: &[resolve::FieldSemantics],
+    typed_plan: &resolve::specs::AccountsPlanTyped,
     fields: &[ParseFieldPlan],
     cx: &emit::EmitCx,
 ) -> syn::Result<proc_macro2::TokenStream> {
-    let inner_body = emit::emit_parse_body(semantics, cx)?;
+    let inner_body = emit::emit_parse_body(semantics, typed_plan, cx)?;
 
     if fields
         .iter()

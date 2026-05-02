@@ -1,156 +1,38 @@
-//! Op-dispatch traits for account lifecycle operations.
+//! Op-dispatch for account lifecycle operations.
 //!
-//! `AccountOp<Field>` is the single trait that all account operations
-//! implement. The derive dispatches ALL ops at ALL lifecycle phases via UFCS.
-//! Each op's trait consts (`HAS_BEFORE_LOAD`, `HAS_EXIT`, `REQUIRES_MUT`)
-//! determine which phases are real — the derive is phase-agnostic.
+//! The derive emits direct capability trait calls for validation, init
+//! contribution, and exit actions. Structural ops (init, realloc, PDA
+//! verification) use their own inherent methods.
 //!
-//! | Phase | Method | Gate |
-//! |-------|--------|------|
-//! | 1 | `before_load` | `HAS_BEFORE_LOAD` |
-//! | 3a | `after_load` | always |
-//! | 3b | `after_load_mut` | `REQUIRES_MUT` |
-//! | 4 | `exit` | `HAS_EXIT` |
-//!
-//! Users declare ops directly on fields: `token(...)`, `close_program(...)`,
-//! `migration(...)`. The derive doesn't know which ops run at which phase.
+//! `OpCtxWithRent` carries instruction-scoped state (program_id + &Rent).
+//! The derive emits this when any field uses init, realloc, or migration.
 
-pub mod close_program;
+pub mod close;
 pub mod init;
-pub mod pda;
+pub mod realloc;
 
-use {solana_account_view::AccountView, solana_program_error::ProgramError};
-
-/// Runtime context shared across all op calls within a single parse invocation.
+/// Context with rent: program_id + pre-fetched Rent.
 ///
-/// Carries `program_id` (always available) and optionally pre-populated `Rent`.
-pub struct OpCtx<'a> {
+/// The derive emits this when any field uses init, realloc, or migration.
+/// Rent is populated exactly once at instruction entry — either deserialized
+/// from a `Sysvar<Rent>` field or fetched via `Rent::get()` syscall.
+pub struct OpCtxWithRent<'a> {
     pub program_id: &'a solana_address::Address,
-    rent: Option<crate::sysvars::rent::Rent>,
+    pub rent: &'a crate::sysvars::rent::Rent,
 }
 
-impl<'a> OpCtx<'a> {
+impl<'a> OpCtxWithRent<'a> {
     #[inline(always)]
-    pub fn new(program_id: &'a solana_address::Address) -> Self {
-        Self {
-            program_id,
-            rent: None,
-        }
-    }
-
-    /// Create with pre-populated rent (avoids syscall when Sysvar<Rent> is
-    /// available).
-    #[inline(always)]
-    pub fn new_with_rent(
+    pub fn new(
         program_id: &'a solana_address::Address,
-        rent: crate::sysvars::rent::Rent,
+        rent: &'a crate::sysvars::rent::Rent,
     ) -> Self {
-        Self {
-            program_id,
-            rent: Some(rent),
-        }
-    }
-
-    /// Create with rent fetched from sysvar (when no Sysvar<Rent> field
-    /// is available).
-    #[inline(always)]
-    pub fn new_fetch_rent(program_id: &'a solana_address::Address) -> Result<Self, ProgramError> {
-        let rent = <crate::sysvars::rent::Rent as crate::sysvars::Sysvar>::get()?;
-        Ok(Self {
-            program_id,
-            rent: Some(rent),
-        })
-    }
-
-    /// Get rent. Always populated at construction time.
-    #[inline(always)]
-    pub fn rent(&self) -> Result<&crate::sysvars::rent::Rent, ProgramError> {
-        match self.rent {
-            Some(ref r) => Ok(r),
-            None => unsafe { core::hint::unreachable_unchecked() },
-        }
-    }
-}
-
-/// Trait for account operations dispatched by the derive macro via UFCS.
-///
-/// Each op struct (e.g., `init::Op`, `token::Op`) implements this trait for
-/// the field types it supports. The derive emits fully-qualified calls:
-///
-/// ```text
-/// <token::Op<'_> as AccountOp<Account<Token>>>::after_load(&op, &field, &ctx)?;
-/// ```
-///
-/// # Const Safety Contract
-///
-/// Any op that mutates an account in `before_load`, `after_load_mut`, or `exit`
-/// **MUST** set `REQUIRES_MUT = true`. The header writable-bit and
-/// duplicate-safety rejection depend on this const being honest.
-pub trait AccountOp<Field> {
-    /// Op requires the target field to be writable.
-    const REQUIRES_MUT: bool = false;
-
-    /// Op has meaningful before_load behavior (Phase 1, raw slot).
-    const HAS_BEFORE_LOAD: bool = false;
-
-    /// Op has meaningful after_load behavior (Phase 3a, shared ref).
-    const HAS_AFTER_LOAD: bool = false;
-
-    /// Op has meaningful after_load_mut behavior (Phase 3b, mut ref).
-    const HAS_AFTER_LOAD_MUT: bool = false;
-
-    /// Op has meaningful exit behavior (Phase 4, epilogue).
-    const HAS_EXIT: bool = false;
-
-    /// Op contributes init params.
-    const HAS_INIT_PARAMS: bool = false;
-
-    /// Phase 1: before typed construction. Raw `AccountView` slot.
-    #[inline(always)]
-    fn before_load(&self, _slot: &mut AccountView, _ctx: &OpCtx<'_>) -> Result<(), ProgramError> {
-        Ok(())
-    }
-
-    /// Phase 3a: after ALL fields loaded. Shared field ref.
-    /// Called for all ops (validation, checks).
-    #[inline(always)]
-    fn after_load(&self, _field: &Field, _ctx: &OpCtx<'_>) -> Result<(), ProgramError> {
-        Ok(())
-    }
-
-    /// Phase 3b: after ALL fields loaded. Mutable field ref.
-    /// Called ONLY for ops with `REQUIRES_MUT = true`, after `load_mut`.
-    /// Use for post-load mutations (realloc, compact flush).
-    #[inline(always)]
-    fn after_load_mut(&self, _field: &mut Field, _ctx: &OpCtx<'_>) -> Result<(), ProgramError> {
-        Ok(())
-    }
-
-    /// Phase 4: epilogue. Mutable field ref.
-    /// Called ONLY for `exit()` groups.
-    #[inline(always)]
-    fn exit(&self, _field: &mut Field, _ctx: &OpCtx<'_>) -> Result<(), ProgramError> {
-        Ok(())
-    }
-
-    /// Contribute init params. Default is no-op.
-    ///
-    /// Ops that contribute (token, mint, ata_init) override this. The derive
-    /// calls this on ALL groups — the default no-op ensures non-contributing
-    /// ops compile and optimize to nothing.
-    ///
-    /// `params` is a pointer to `InitParams<'_>` for the field's init type.
-    /// Overriding impls cast to the concrete params type. Sound because the
-    /// derive constructs params with the correct associated type.
-    #[inline(always)]
-    fn apply_init_params(&self, _params: *mut u8) -> Result<(), ProgramError> {
-        Ok(())
+        Self { program_id, rent }
     }
 }
 
 /// Marker trait for account types that support realloc.
 ///
-/// The `realloc::Op` in `quasar-spl` requires `F::BehaviorTarget:
-/// SupportsRealloc` to ensure only realloc-capable accounts are used with
-/// `realloc(...)`.
+/// The `realloc::Op` requires `F: SupportsRealloc` to ensure only
+/// realloc-capable accounts are used with `realloc(...)`.
 pub trait SupportsRealloc {}

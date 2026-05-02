@@ -1,18 +1,5 @@
 use {crate::prelude::*, core::marker::PhantomData};
 
-#[inline(always)]
-fn check_owners(view: &AccountView, owners: &[Address]) -> Result<(), ProgramError> {
-    let owner = view.owner();
-    let mut i = 0;
-    while i < owners.len() {
-        if crate::keys_eq(owner, &owners[i]) {
-            return Ok(());
-        }
-        i += 1;
-    }
-    Err(ProgramError::IllegalOwner)
-}
-
 /// Account wrapper accepting any owner in `T::owners()` (e.g. SPL Token +
 /// Token-2022).
 #[repr(transparent)]
@@ -28,12 +15,20 @@ impl<T> AsAccountView for InterfaceAccount<T> {
     }
 }
 
-impl<T: Owners + AccountCheck> InterfaceAccount<T> {
+impl<T: crate::account_layout::AccountLayout> crate::account_layout::AccountLayout
+    for InterfaceAccount<T>
+{
+    type Schema = T::Schema;
+    type Target = T::Target;
+    const DATA_OFFSET: usize = T::DATA_OFFSET;
+}
+
+impl<T: Owners + crate::account_load::AccountLoad> InterfaceAccount<T> {
     /// Validate owner + data check, then pointer-cast.
     #[inline(always)]
     pub fn from_account_view(view: &AccountView) -> Result<&Self, ProgramError> {
-        check_owners(view, T::owners())?;
-        T::check(view)?;
+        <T as Owners>::check_owner(view)?;
+        T::check(view, "")?;
         Ok(unsafe { &*(view as *const AccountView as *const Self) })
     }
     #[inline(always)]
@@ -41,8 +36,8 @@ impl<T: Owners + AccountCheck> InterfaceAccount<T> {
         if crate::utils::hint::unlikely(!view.is_writable()) {
             return Err(ProgramError::Immutable);
         }
-        check_owners(view, T::owners())?;
-        T::check(view)?;
+        <T as Owners>::check_owner(view)?;
+        T::check(view, "")?;
         Ok(unsafe { &mut *(view as *mut AccountView as *mut Self) })
     }
 
@@ -61,13 +56,13 @@ impl<T: Owners + AccountCheck> InterfaceAccount<T> {
     }
 }
 
-impl<T: Owners + AccountCheck> crate::account_load::AccountLoad for InterfaceAccount<T> {
-    type BehaviorTarget = T;
-
+impl<T: Owners + crate::account_load::AccountLoad> crate::account_load::AccountLoad
+    for InterfaceAccount<T>
+{
     #[inline(always)]
-    fn check(view: &AccountView, _field_name: &str) -> Result<(), ProgramError> {
-        check_owners(view, T::owners())?;
-        T::check(view)
+    fn check(view: &AccountView, field_name: &str) -> Result<(), ProgramError> {
+        <T as Owners>::check_owner(view)?;
+        T::check(view, field_name)
     }
 }
 
@@ -87,4 +82,32 @@ impl<T: ZeroCopyDeref> core::ops::DerefMut for InterfaceAccount<T> {
     }
 }
 
-impl<T> crate::traits::FieldLifecycle for InterfaceAccount<T> {}
+// --- Forwarding impls: InterfaceAccount<T> delegates behavior to T ---
+
+impl<T: crate::account_init::AccountInit> crate::account_init::AccountInit for InterfaceAccount<T> {
+    type InitParams<'a> = T::InitParams<'a>;
+
+    #[inline(always)]
+    fn init<'a>(
+        ctx: crate::account_init::InitCtx<'a>,
+        params: &Self::InitParams<'a>,
+    ) -> solana_program_error::ProgramResult {
+        T::init(ctx, params)
+    }
+}
+
+impl<T: crate::ops::close::AccountClose> crate::ops::close::AccountClose for InterfaceAccount<T> {
+    #[inline(always)]
+    fn close(
+        view: &mut solana_account_view::AccountView,
+        dest: &solana_account_view::AccountView,
+    ) -> solana_program_error::ProgramResult {
+        T::close(view, dest)
+    }
+}
+
+impl<T: crate::traits::Space> crate::traits::Space for InterfaceAccount<T> {
+    const SPACE: usize = T::SPACE;
+}
+
+impl<T: crate::ops::SupportsRealloc> crate::ops::SupportsRealloc for InterfaceAccount<T> {}

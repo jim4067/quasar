@@ -1,8 +1,11 @@
-//! Deny test: no domain knowledge in the derive macro.
+//! Deny test: derive macro boundary enforcement.
 //!
-//! The derive may know structural syntax (groups, fields, flags, trait consts)
-//! but must NOT know domain concepts (program names, account type names,
-//! CPI targets, layout semantics).
+//! The derive owns SPL lowering in explicit SPL modules (specs, planner,
+//! typed_emit). Generic modules (syntax, field classification, output) must
+//! not contain literal SPL domain strings.
+//!
+//! SPL-aware modules are excluded from this check because they legitimately
+//! reference SPL type/trait names for greppability.
 
 /// Domain strings that must never appear in derive/src/accounts/ source.
 ///
@@ -17,12 +20,12 @@ const BANNED: &[&str] = &[
     "is_migration_type",
     // SPL param types
     "TokenParams",
+    "TokenInitKind",
     "MintParams",
+    "MintInitParams",
     "SPL_TOKEN",
     "quasar_spl",
     // SPL trait names
-    "HasTokenLayout",
-    "HasMintLayout",
     "TokenClose",
     "TokenSweep",
     "CloseCtx",
@@ -66,9 +69,28 @@ fn deny_domain_strings_in_derive() {
     collect_rs_files(&derive_src, &mut files);
     assert!(!files.is_empty(), "no .rs files found in {:?}", derive_src);
 
+    // SPL-aware modules are allowed to use domain strings directly.
+    // Generic modules must remain domain-free.
+    let spl_modules: &[&str] = &[
+        "resolve/specs.rs",
+        "resolve/planner.rs",
+        "emit/typed_emit.rs",
+        "emit/parse.rs",
+    ];
+
     let mut violations = Vec::new();
 
     for file in &files {
+        let rel = file
+            .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+            .unwrap_or(file);
+        let rel_str = rel.to_string_lossy();
+
+        // Skip SPL-aware modules.
+        if spl_modules.iter().any(|m| rel_str.contains(m)) {
+            continue;
+        }
+
         let content = std::fs::read_to_string(file).unwrap();
         for (line_num, line) in content.lines().enumerate() {
             // Skip comments
@@ -78,14 +100,7 @@ fn deny_domain_strings_in_derive() {
             }
             for term in BANNED {
                 if line.contains(term) {
-                    violations.push(format!(
-                        "  {}:{}: `{}`",
-                        file.strip_prefix(env!("CARGO_MANIFEST_DIR"))
-                            .unwrap_or(file)
-                            .display(),
-                        line_num + 1,
-                        term,
-                    ));
+                    violations.push(format!("  {}:{}: `{}`", rel.display(), line_num + 1, term,));
                 }
             }
         }

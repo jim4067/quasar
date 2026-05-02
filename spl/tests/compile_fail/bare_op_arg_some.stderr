@@ -1,0 +1,5 @@
+error: `authority` does not accept `Some(...)`; use the field name directly
+  --> tests/compile_fail/bare_op_arg_some.rs:12:46
+   |
+12 |     #[account(token(mint = mint, authority = Some(authority)))]
+   |                                              ^^^^^^^^^^^^^^^

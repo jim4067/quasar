@@ -7,6 +7,86 @@ pub(crate) enum FieldKind {
     Composite,
 }
 
+/// Op classification for direct capability dispatch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum OpKind {
+    /// Validation after typed load; also contributes init params on init
+    /// fields.
+    Check,
+    /// Epilogue action (exit phase).
+    Exit,
+}
+
+/// Known op group names after directive classification.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum GroupKind {
+    Token,
+    Mint,
+    AssociatedToken,
+    Close,
+    Sweep,
+}
+
+impl GroupKind {
+    pub(crate) fn from_path(path: &syn::Path) -> syn::Result<Self> {
+        if let Some(segment) = path.segments.last() {
+            let ident = &segment.ident;
+            if ident == "token" {
+                return Ok(Self::Token);
+            }
+            if ident == "mint" {
+                return Ok(Self::Mint);
+            }
+            if ident == "associated_token" {
+                return Ok(Self::AssociatedToken);
+            }
+            if ident == "close" {
+                return Ok(Self::Close);
+            }
+            if ident == "sweep" {
+                return Ok(Self::Sweep);
+            }
+        }
+
+        let name = path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string())
+            .unwrap_or_default();
+        Err(syn::Error::new_spanned(
+            path,
+            format!(
+                "unknown op group `{name}`. Valid: token, mint, associated_token, close, sweep"
+            ),
+        ))
+    }
+
+    pub(crate) const fn op_kind(self) -> OpKind {
+        match self {
+            Self::Token | Self::Mint | Self::AssociatedToken => OpKind::Check,
+            Self::Close | Self::Sweep => OpKind::Exit,
+        }
+    }
+
+    pub(crate) const fn exit_order(self) -> u8 {
+        match self {
+            Self::Sweep => 0,
+            Self::Close => 1,
+            _ => 2,
+        }
+    }
+
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Token => "token",
+            Self::Mint => "mint",
+            Self::AssociatedToken => "associated_token",
+            Self::Close => "close",
+            Self::Sweep => "sweep",
+        }
+    }
+}
+
 pub(crate) struct FieldCore {
     pub ident: Ident,
     pub field: syn::Field,
@@ -24,6 +104,7 @@ pub(crate) struct FieldCore {
 #[derive(Clone)]
 pub(crate) struct GroupDirective {
     pub path: syn::Path,
+    pub kind: GroupKind,
     pub args: Vec<GroupArg>,
 }
 
@@ -60,12 +141,14 @@ pub(crate) struct FieldSemantics {
     pub address: Option<Expr>,
     /// `realloc = expr` — realloc size expression.
     pub realloc: Option<Expr>,
-    /// Op groups. The derive dispatches ALL groups at ALL lifecycle phases.
-    /// Each op's trait methods are mostly no-ops (default impls). The op
-    /// decides which phases are real — not the derive, not the user.
+    /// All op groups (raw directives — classification happens in the planner).
     pub groups: Vec<GroupDirective>,
     /// Structural assertions: has_one, address, constraints.
     pub user_checks: Vec<UserCheck>,
+    /// True when the field type is `Migration<From, To>` (syntactic detection
+    /// on the last path segment). Proc macros cannot resolve type aliases —
+    /// only direct `Migration<From, To>` paths are supported.
+    pub is_migration: bool,
 }
 
 impl FieldSemantics {

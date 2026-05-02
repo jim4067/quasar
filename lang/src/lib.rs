@@ -350,6 +350,8 @@ pub mod macros;
 pub mod sysvars;
 /// Runtime init functions for program-owned accounts.
 pub mod account_init;
+/// Layout descriptor for zero-copy account wrappers (`AccountLayout`).
+pub mod account_layout;
 /// Trait-based account loading and validation (`AccountLoad`).
 pub mod account_load;
 /// Zero-copy account wrapper types for instruction handlers.
@@ -377,7 +379,8 @@ pub mod event;
 pub mod instruction_arg;
 /// Low-level `sol_log_data` syscall wrapper.
 pub mod log;
-/// Op-dispatch traits for account lifecycle operations (`AccountOp`, `OpCtx`).
+/// Op-dispatch: `OpCtxWithRent`, `SupportsRealloc`, structural ops (init,
+/// realloc, close).
 pub mod ops;
 /// Program Derived Address creation and lookup.
 pub mod pda;
@@ -397,6 +400,8 @@ pub mod utils;
 pub mod validation;
 
 pub use crate::pod::{PodString as String, PodVec as Vec};
+#[doc(hidden)]
+pub use solana_program_error as __solana_program_error;
 /// Re-export of the `zeropod` crate so that `#[derive(ZeroPod)]` expansion
 /// inside framework-generated code can resolve `zeropod::*` paths without
 /// downstream crates adding a direct dependency.

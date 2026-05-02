@@ -27,9 +27,8 @@ pub use {
         return_data::set_return_data,
         sysvars::{clock::Clock, rent::Rent},
         traits::{
-            AccountCheck, AccountCount, AsAccountView, CheckOwner, Discriminator, Event,
-            FieldLifecycle, HasSeeds, Id, Owner, Owners, ParseAccounts, ProgramInterface, Space,
-            StaticView, ZeroCopyDeref,
+            AccountCount, AsAccountView, CheckOwner, Discriminator, Event, HasSeeds, Id, Owner,
+            Owners, ParseAccounts, ProgramInterface, Space, StaticView, ZeroCopyDeref,
         },
         String, Vec, ZcElem, ZcField, ZcValidate, ZeroPodError,
     },

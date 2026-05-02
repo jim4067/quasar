@@ -177,8 +177,8 @@ impl quasar_lang::traits::Owners for VaultInterface {
     }
 }
 
-impl quasar_lang::traits::AccountCheck for VaultInterface {
-    fn check(view: &AccountView) -> Result<(), ProgramError> {
+impl quasar_lang::account_load::AccountLoad for VaultInterface {
+    fn check(view: &AccountView, _field_name: &str) -> Result<(), ProgramError> {
         let data = unsafe { view.borrow_unchecked() };
         if data.is_empty() {
             return Err(ProgramError::AccountDataTooSmall);

@@ -15,7 +15,7 @@
 //! in.
 
 use {
-    super::super::resolve::{GroupArg, GroupDirective, UserCheck},
+    super::super::resolve::{GroupArg, GroupDirective, GroupKind, UserCheck},
     syn::{
         parse::{Parse, ParseStream},
         Expr, Ident, Token,
@@ -148,9 +148,10 @@ impl Parse for ParsedDirective {
 
                 // All other groups: token, mint, close, sweep, etc.
                 _ => {
+                    let kind = GroupKind::from_path(&path)?;
                     let args = parse_group_args(&content)?;
                     return Ok(ParsedDirective {
-                        inner: Directive::Group(GroupDirective { path, args }),
+                        inner: Directive::Group(GroupDirective { path, kind, args }),
                     });
                 }
             }
@@ -178,14 +179,24 @@ fn parse_group_args(input: ParseStream) -> syn::Result<Vec<GroupArg>> {
     while !input.is_empty() {
         let key: Ident = input.parse()?;
 
-        let value = if input.peek(Token![=]) {
-            input.parse::<Token![=]>()?;
-            input.parse::<Expr>()?
-        } else {
-            // Bare key with no value — treat as `key = true`
-            syn::parse_quote!(true)
-        };
+        if !input.peek(Token![=]) {
+            return Err(syn::Error::new_spanned(
+                &key,
+                format!(
+                    "op arg `{key}` requires a value: `{key} = ...`. Bare flags are not supported \
+                     in op groups",
+                ),
+            ));
+        }
+        input.parse::<Token![=]>()?;
+        let value: Expr = input.parse()?;
 
+        if args.iter().any(|a: &GroupArg| a.key == key) {
+            return Err(syn::Error::new_spanned(
+                &key,
+                format!("duplicate arg `{key}` — each arg may only appear once"),
+            ));
+        }
         args.push(GroupArg { key, value });
 
         if !input.is_empty() {

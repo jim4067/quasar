@@ -87,10 +87,15 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error().into(),
     };
 
-    // --- Pipeline: syntax → resolve → emit ---
+    // --- Pipeline: syntax → resolve → plan → emit ---
 
     let semantics = match resolve::lower_semantics(fields, &instruction_args) {
         Ok(semantics) => semantics,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
+    let typed_plan = match resolve::planner::build_plan(&semantics) {
+        Ok(plan) => plan,
         Err(e) => return e.to_compile_error().into(),
     };
 
@@ -98,7 +103,7 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
         bumps_name: bumps_name.clone(),
     };
 
-    let accounts_plan = match build_accounts_plan(&semantics, &emit_cx) {
+    let accounts_plan = match build_accounts_plan(&semantics, &typed_plan, &emit_cx) {
         Ok(parts) => parts,
         Err(e) => return e.to_compile_error().into(),
     };
@@ -110,11 +115,11 @@ pub(crate) fn derive_accounts(input: TokenStream) -> TokenStream {
     } = accounts_plan;
 
     let bumps_struct = emit::emit_bump_struct_def(&semantics, &emit_cx);
-    let epilogue_method = match emit::emit_epilogue(&semantics) {
+    let epilogue_method = match emit::emit_epilogue(&semantics, &typed_plan) {
         Ok(ts) => ts,
         Err(e) => return e.to_compile_error().into(),
     };
-    let has_epilogue_expr = emit::emit_has_epilogue(&semantics);
+    let has_epilogue_expr = emit::emit_has_epilogue(&typed_plan);
 
     let seeds_methods = quote::quote! {};
 

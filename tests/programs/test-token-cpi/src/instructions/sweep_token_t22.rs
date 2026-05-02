@@ -1,10 +1,7 @@
 use {
     quasar_derive::Accounts,
     quasar_lang::prelude::*,
-    quasar_spl::{
-        ops::{sweep, token},
-        Mint2022, Token2022, Token2022Program,
-    },
+    quasar_spl::{Mint2022, Token2022, Token2022Program},
 };
 
 #[derive(Accounts)]
@@ -12,8 +9,8 @@ pub struct SweepTokenT22 {
     pub authority: Signer,
     #[account(
         mut,
-        token(mint = mint, authority = authority, token_program = token_program),
-        sweep(receiver = receiver, mint = mint, authority = authority, token_program = token_program)
+        token(mint = mint, authority = authority),
+        sweep(receiver = receiver, mint = mint, authority = authority)
     )]
     pub source: Account<Token2022>,
     #[account(mut)]

@@ -1,4 +1,5 @@
-//! Lower parsed directives into FieldSemantics with phase-tagged groups.
+//! Lower parsed directives into FieldSemantics.
+//! No inference or classification — that's the planner's job.
 
 use {
     super::{
@@ -31,6 +32,7 @@ pub(super) fn lower_semantics(
         .into_iter()
         .zip(cores)
         .map(|((_, directives), core)| {
+            let is_migration = detect_migration(&core.effective_ty);
             let mut sem = FieldSemantics {
                 core,
                 init: None,
@@ -39,6 +41,7 @@ pub(super) fn lower_semantics(
                 realloc: None,
                 groups: Vec::new(),
                 user_checks: Vec::new(),
+                is_migration,
             };
             lower_directives(&mut sem, directives)?;
             Ok(sem)
@@ -110,11 +113,9 @@ fn lower_directives(sem: &mut FieldSemantics, directives: Vec<Directive>) -> syn
             }
             Directive::Address(expr, error) => {
                 if error.is_some() {
-                    // Custom error: use the check path (custom error message).
                     sem.user_checks
                         .push(super::UserCheck::Address { expr, error });
                 } else {
-                    // No custom error: use AddressVerify (supports seeds + literal).
                     sem.address = Some(expr);
                 }
             }
@@ -177,4 +178,16 @@ fn detect_dynamic(effective_ty: &Type, inner_ty: Option<&Type>) -> bool {
         }
     }
     false
+}
+
+/// Syntactic detection: last path segment is `Migration`.
+fn detect_migration(ty: &Type) -> bool {
+    match ty {
+        Type::Path(tp) => tp
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "Migration"),
+        _ => false,
+    }
 }
