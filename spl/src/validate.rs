@@ -47,10 +47,10 @@ pub fn validate_token_account(
     token_program: Option<&Address>,
 ) -> Result<(), ProgramError> {
     match token_program {
-        Some(tp) => validate_token_account_inner(view, mint, authority, tp, true),
+        Some(tp) => validate_token_account_inner(view, mint, authority, tp, true, true),
         // No token_program means AccountLoad already verified the owner.
-        // Use the on-chain owner directly — skip the program check.
-        None => validate_token_account_inner(view, mint, authority, view.owner(), false),
+        // Skip BOTH program validation AND owner check (owner == owner is tautological).
+        None => validate_token_account_inner(view, mint, authority, view.owner(), false, false),
     }
 }
 
@@ -61,11 +61,12 @@ fn validate_token_account_inner(
     authority: &Address,
     token_program: &Address,
     check_program: bool,
+    check_owner: bool,
 ) -> Result<(), ProgramError> {
     if check_program {
         validate_token_program(token_program)?;
     }
-    if unlikely(!quasar_lang::keys_eq(view.owner(), token_program)) {
+    if check_owner && unlikely(!quasar_lang::keys_eq(view.owner(), token_program)) {
         #[cfg(feature = "debug")]
         quasar_lang::prelude::log("validate_token_account: wrong program owner");
         return Err(ProgramError::IllegalOwner);
@@ -107,24 +108,26 @@ fn validate_token_account_inner(
 ///   initialized.
 ///
 /// # Safety
-///
-/// Performs an unchecked pointer cast to [`MintDataZc`]. This is safe
-/// because the owner and data-length checks above guarantee the account data
-/// is at least `82` bytes and belongs to a token program.
-/// `MintDataZc` is `#[repr(C)]` with alignment 1.
-///
-/// When `freeze_authority` is `None`, the function asserts that no freeze
-/// authority is set on-chain (matching Anchor's behavior).
+/// Three-state freeze authority check for validate_mint_with_freeze.
+pub enum FreezeCheck<'a> {
+    /// Omitted by user — skip check entirely.
+    Skip,
+    /// Assert no freeze authority.
+    AssertNone,
+    /// Assert freeze authority matches.
+    AssertEquals(&'a Address),
+}
+
+/// Validate a mint with explicit freeze_authority check semantics.
 #[inline(always)]
-pub fn validate_mint(
+pub fn validate_mint_with_freeze(
     view: &AccountView,
     mint_authority: &Address,
     decimals: Option<u8>,
-    freeze_authority: Option<&Address>,
+    freeze: FreezeCheck<'_>,
     token_program: Option<&Address>,
 ) -> Result<(), ProgramError> {
     if let Some(tp) = token_program {
-        // Verify the token program is a known SPL token program.
         validate_token_program(tp)?;
         if unlikely(!quasar_lang::keys_eq(view.owner(), tp)) {
             #[cfg(feature = "debug")]
@@ -132,14 +135,11 @@ pub fn validate_mint(
             return Err(ProgramError::IllegalOwner);
         }
     }
-    // When token_program is None, AccountLoad already validated the owner.
     if unlikely(view.data_len() < 82) {
         #[cfg(feature = "debug")]
         quasar_lang::prelude::log("validate_mint: data too small");
         return Err(ProgramError::InvalidAccountData);
     }
-    // SAFETY: Owner is a token program and `data_len >= LEN` checked
-    // above. `MintDataZc` is `#[repr(C)]` with alignment 1.
     let state = unsafe { &*(view.data_ptr() as *const MintDataZc) };
     if unlikely(!state.is_initialized()) {
         #[cfg(feature = "debug")]
@@ -161,19 +161,20 @@ pub fn validate_mint(
             return Err(ProgramError::InvalidAccountData);
         }
     }
-    match freeze_authority {
-        Some(expected) => {
-            if unlikely(
-                !state.has_freeze_authority()
-                    || !quasar_lang::keys_eq(state.freeze_authority_unchecked(), expected),
-            ) {
+    match freeze {
+        FreezeCheck::Skip => {}
+        FreezeCheck::AssertNone => {
+            if unlikely(state.has_freeze_authority()) {
                 #[cfg(feature = "debug")]
                 quasar_lang::prelude::log("validate_mint: freeze authority mismatch");
                 return Err(ProgramError::InvalidAccountData);
             }
         }
-        None => {
-            if unlikely(state.has_freeze_authority()) {
+        FreezeCheck::AssertEquals(expected) => {
+            if unlikely(
+                !state.has_freeze_authority()
+                    || !quasar_lang::keys_eq(state.freeze_authority_unchecked(), expected),
+            ) {
                 #[cfg(feature = "debug")]
                 quasar_lang::prelude::log("validate_mint: freeze authority mismatch");
                 return Err(ProgramError::InvalidAccountData);
@@ -220,7 +221,7 @@ pub fn validate_ata(
     // The PDA derivation above already proved token_program is correct
     // (it's a seed in the ATA address). Skip the redundant
     // validate_token_program check inside validate_token_account.
-    validate_token_account_inner(view, mint, wallet, token_program, false)
+    validate_token_account_inner(view, mint, wallet, token_program, false, true)
 }
 
 // ---------------------------------------------------------------------------

@@ -199,8 +199,8 @@ pub use {
     },
     token_2022::{Mint2022, Token2022, Token2022Program},
     validate::{
-        validate_ata, validate_ata_program_id, validate_mint, validate_system_program_id,
-        validate_token_account, validate_token_program_id,
+        validate_ata, validate_ata_program_id, validate_mint_with_freeze,
+        validate_system_program_id, validate_token_account, validate_token_program_id, FreezeCheck,
     },
 };
 
@@ -253,4 +253,3 @@ impl<T: ops::sweep::TokenSweep> ops::sweep::TokenSweep for InterfaceAccount<T> {
         T::sweep(view, receiver, mint, authority, tp)
     }
 }
-

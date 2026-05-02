@@ -59,11 +59,19 @@ where
 {
     #[inline(always)]
     fn check_mint_view(view: &AccountView, ctx: MintCheckCtx<'_>) -> Result<(), ProgramError> {
-        crate::validate::validate_mint(
+        use super::ctx::FreezeAuthorityCheck;
+        let freeze = match ctx.freeze_authority {
+            FreezeAuthorityCheck::Skip => crate::validate::FreezeCheck::Skip,
+            FreezeAuthorityCheck::AssertNone => crate::validate::FreezeCheck::AssertNone,
+            FreezeAuthorityCheck::AssertEquals(fa) => {
+                crate::validate::FreezeCheck::AssertEquals(fa.address())
+            }
+        };
+        crate::validate::validate_mint_with_freeze(
             view,
             ctx.authority.address(),
             ctx.decimals,
-            ctx.freeze_authority.map(|fa| fa.address()),
+            freeze,
             ctx.token_program.map(|tp| tp.address()),
         )
     }
@@ -88,4 +96,3 @@ where
         crate::validate::validate_ata(view, ctx.authority.address(), ctx.mint.address(), tp)
     }
 }
-

@@ -104,23 +104,8 @@ pub(crate) struct FieldCore {
 #[derive(Clone)]
 pub(crate) struct GroupDirective {
     pub path: syn::Path,
-    pub args: Vec<GroupArg>,
-}
-
-/// Classified op group used by codegen.
-#[derive(Clone)]
-pub(crate) struct GroupOp {
     pub kind: GroupKind,
     pub args: Vec<GroupArg>,
-}
-
-impl GroupOp {
-    pub(crate) fn from_directive(group: &GroupDirective) -> syn::Result<Self> {
-        Ok(Self {
-            kind: GroupKind::from_path(&group.path)?,
-            args: group.args.clone(),
-        })
-    }
 }
 
 /// A single `key = value` arg in a group directive.
@@ -156,16 +141,8 @@ pub(crate) struct FieldSemantics {
     pub address: Option<Expr>,
     /// `realloc = expr` — realloc size expression.
     pub realloc: Option<Expr>,
-    /// All op groups (raw, before classification into buckets).
+    /// All op groups (raw directives — classification happens in the planner).
     pub groups: Vec<GroupDirective>,
-    /// Check ops: run after load.
-    pub constraints: Vec<GroupOp>,
-    /// Check ops that also contribute init params during init phase.
-    /// Only populated when `has_init()`.
-    pub init_contributors: Vec<GroupOp>,
-    /// Exit action ops (Exit kind): run in epilogue.
-    /// Sorted: sweep before close.
-    pub exit_actions: Vec<GroupOp>,
     /// Structural assertions: has_one, address, constraints.
     pub user_checks: Vec<UserCheck>,
     /// True when the field type is `Migration<From, To>` (syntactic detection

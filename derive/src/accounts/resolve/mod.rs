@@ -1,6 +1,8 @@
 mod lower;
 mod model;
+pub(crate) mod planner;
 pub(crate) mod rules;
+pub(crate) mod specs;
 
 pub(crate) use model::*;
 

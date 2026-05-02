@@ -1,7 +1,8 @@
-pub(crate) mod ops;
 mod output;
 pub(crate) mod parse;
+mod typed_emit;
 
+use super::resolve::specs::AccountsPlanTyped;
 pub(crate) use output::{emit_accounts_output, AccountsOutput};
 
 pub(crate) struct EmitCx {
@@ -10,9 +11,10 @@ pub(crate) struct EmitCx {
 
 pub(crate) fn emit_parse_body(
     semantics: &[super::resolve::FieldSemantics],
+    plan: &AccountsPlanTyped,
     cx: &EmitCx,
 ) -> syn::Result<proc_macro2::TokenStream> {
-    parse::emit_parse_body(semantics, cx)
+    parse::emit_parse_body(semantics, plan, cx)
 }
 
 pub(crate) fn emit_bump_struct_def(
@@ -24,15 +26,11 @@ pub(crate) fn emit_bump_struct_def(
 
 pub(crate) fn emit_epilogue(
     semantics: &[super::resolve::FieldSemantics],
+    plan: &AccountsPlanTyped,
 ) -> syn::Result<proc_macro2::TokenStream> {
-    let op_ctx = ops::OpEmitCtx {
-        field_names: semantics.iter().map(|s| s.core.ident.to_string()).collect(),
-    };
-    parse::emit_epilogue(semantics, &op_ctx)
+    parse::emit_epilogue(semantics, plan)
 }
 
-pub(crate) fn emit_has_epilogue(
-    semantics: &[super::resolve::FieldSemantics],
-) -> proc_macro2::TokenStream {
-    parse::emit_has_epilogue(semantics)
+pub(crate) fn emit_has_epilogue(plan: &AccountsPlanTyped) -> proc_macro2::TokenStream {
+    parse::emit_has_epilogue_typed(plan)
 }

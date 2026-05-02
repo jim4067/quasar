@@ -120,7 +120,6 @@ pub(super) fn generate_account(
                         _field_name: &str,
                     ) -> Result<(), quasar_lang::__solana_program_error::ProgramError> {
                         <#name as quasar_lang::checks::Discriminator>::check(view)?;
-                        <#name as quasar_lang::checks::DataLen>::check(view)?;
                         <#name as quasar_lang::checks::ZeroPod>::check(view)?;
                         Ok(())
                     }

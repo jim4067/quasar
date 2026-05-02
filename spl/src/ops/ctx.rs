@@ -17,6 +17,23 @@ pub struct TokenCheckCtx<'a> {
     pub token_program: Option<&'a AccountView>,
 }
 
+/// How freeze_authority should be validated.
+///
+/// Three distinct semantics:
+/// - `Skip`: user omitted freeze_authority → do not check at all.
+/// - `AssertNone`: user wrote `freeze_authority = None` → assert no freeze
+///   authority.
+/// - `AssertEquals`: user wrote `freeze_authority = Some(field)` → assert
+///   matches.
+pub enum FreezeAuthorityCheck<'a> {
+    /// Omitted by user — skip check entirely.
+    Skip,
+    /// Assert the mint has no freeze authority.
+    AssertNone,
+    /// Assert the mint's freeze authority matches this address.
+    AssertEquals(&'a AccountView),
+}
+
 /// Context for mint account validation.
 ///
 /// `token_program` is optional: concrete types already have owner validated.
@@ -24,7 +41,7 @@ pub struct TokenCheckCtx<'a> {
 pub struct MintCheckCtx<'a> {
     pub decimals: Option<u8>,
     pub authority: &'a AccountView,
-    pub freeze_authority: Option<&'a AccountView>,
+    pub freeze_authority: FreezeAuthorityCheck<'a>,
     pub token_program: Option<&'a AccountView>,
 }
 

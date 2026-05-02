@@ -1,6 +1,8 @@
 //! Structural validation rules — no domain knowledge.
+//! Arg presence/absence validation is now done by the planner during
+//! resolution.
 
-use super::{FieldSemantics, GroupArg, GroupKind};
+use super::{FieldSemantics, GroupKind};
 
 pub(super) fn validate_semantics(semantics: &[FieldSemantics]) -> syn::Result<()> {
     for sem in semantics {
@@ -20,12 +22,7 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
                 "`Migration<From, To>` requires `mut`",
             ));
         }
-        if sem.payer.is_none() {
-            return Err(syn::Error::new_spanned(
-                span,
-                "`Migration<From, To>` requires `payer = ...`",
-            ));
-        }
+        // Payer presence is validated by the planner (cross-field resolution).
         if sem.core.optional {
             return Err(syn::Error::new_spanned(
                 span,
@@ -45,14 +42,13 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
             ));
         }
         for group in &sem.groups {
-            let kind = GroupKind::from_path(&group.path)?;
-            if matches!(kind, GroupKind::Close | GroupKind::Sweep) {
+            if matches!(group.kind, GroupKind::Close | GroupKind::Sweep) {
                 return Err(syn::Error::new_spanned(
                     span,
                     format!(
                         "`{}` cannot be used with `Migration<From, To>` — migrating and closing \
                          the same account is ordering-sensitive",
-                        kind.name()
+                        group.kind.name()
                     ),
                 ));
             }
@@ -87,13 +83,12 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
             ));
         }
         for group in &sem.groups {
-            let kind = GroupKind::from_path(&group.path)?;
-            if matches!(kind, GroupKind::Close | GroupKind::Sweep) {
+            if matches!(group.kind, GroupKind::Close | GroupKind::Sweep) {
                 return Err(syn::Error::new_spanned(
                     span,
                     format!(
                         "`dup` cannot be used with `{}` — mutation on aliased accounts is unsound",
-                        kind.name()
+                        group.kind.name()
                     ),
                 ));
             }
@@ -103,11 +98,10 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
     // Exit ops require mut
     if !sem.core.is_mut {
         for group in &sem.groups {
-            let kind = GroupKind::from_path(&group.path)?;
-            if matches!(kind, GroupKind::Close | GroupKind::Sweep) {
+            if matches!(group.kind, GroupKind::Close | GroupKind::Sweep) {
                 return Err(syn::Error::new_spanned(
                     span,
-                    format!("`{}(...)` requires `mut`", kind.name()),
+                    format!("`{}(...)` requires `mut`", group.kind.name()),
                 ));
             }
         }
@@ -155,31 +149,23 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
         }
     }
 
-    if sem.realloc.is_some() {
-        if !sem.core.is_mut {
-            return Err(syn::Error::new_spanned(
-                span,
-                "`realloc = ...` requires `mut`",
-            ));
-        }
-        if sem.payer.is_none() {
-            return Err(syn::Error::new_spanned(
-                span,
-                "`realloc = ...` requires `payer = ...` on the same field",
-            ));
-        }
+    // Payer presence is validated by the planner (cross-field resolution).
+    if sem.realloc.is_some() && !sem.core.is_mut {
+        return Err(syn::Error::new_spanned(
+            span,
+            "`realloc = ...` requires `mut`",
+        ));
     }
 
-    // Zero or one init contributor per field. Multiple SPL init groups
-    // (e.g., token(...) + associated_token(...)) is a compile error.
+    // Zero or one init contributor per field.
     if sem.has_init() {
         let init_contributor_count = sem
             .groups
             .iter()
             .filter(|group| {
                 matches!(
-                    GroupKind::from_path(&group.path),
-                    Ok(GroupKind::Token | GroupKind::Mint | GroupKind::AssociatedToken)
+                    group.kind,
+                    GroupKind::Token | GroupKind::Mint | GroupKind::AssociatedToken
                 )
             })
             .count();
@@ -207,9 +193,6 @@ fn validate_field(sem: &FieldSemantics) -> syn::Result<()> {
         }
     }
 
-    // Validate required args per group kind.
-    validate_required_group_args(sem)?;
-
     Ok(())
 }
 
@@ -218,44 +201,19 @@ fn validate_close_groups(sem: &FieldSemantics) -> syn::Result<()> {
     let has_sweep = sem
         .groups
         .iter()
-        .any(|group| matches!(GroupKind::from_path(&group.path), Ok(GroupKind::Sweep)));
+        .any(|group| group.kind == GroupKind::Sweep);
 
     for group in &sem.groups {
-        if !matches!(GroupKind::from_path(&group.path)?, GroupKind::Close) {
+        if group.kind != GroupKind::Close {
             continue;
         }
 
-        for arg in &group.args {
-            if !matches!(
-                arg.key.to_string().as_str(),
-                "dest" | "authority" | "token_program"
-            ) {
-                return Err(syn::Error::new_spanned(
-                    &arg.key,
-                    format!(
-                        "unknown `close(...)` arg `{}`. Valid forms: `close(dest = ...)` for \
-                         program accounts, or `close(dest = ..., authority = ..., token_program = \
-                         ...)` for token accounts",
-                        arg.key
-                    ),
-                ));
-            }
-        }
-
-        if !has_arg(&group.args, "dest") {
+        let has_authority = group.args.iter().any(|a| a.key == "authority");
+        let has_token_program = group.args.iter().any(|a| a.key == "token_program");
+        if has_token_program && !has_authority {
             return Err(syn::Error::new_spanned(
                 &group.path,
-                "`close(...)` requires `dest = ...`",
-            ));
-        }
-
-        let has_authority = has_arg(&group.args, "authority");
-        let has_token_program = has_arg(&group.args, "token_program");
-        if has_authority != has_token_program {
-            return Err(syn::Error::new_spanned(
-                &group.path,
-                "`close(...)` must include both `authority = ...` and `token_program = ...` for \
-                 token accounts, or neither for program accounts",
+                "`close(...)` with `token_program = ...` also requires `authority = ...`",
             ));
         }
 
@@ -263,7 +221,7 @@ fn validate_close_groups(sem: &FieldSemantics) -> syn::Result<()> {
             return Err(syn::Error::new_spanned(
                 &group.path,
                 "`sweep(...)` can only be paired with token close. Use `close(dest = ..., \
-                 authority = ..., token_program = ...)`",
+                 authority = ...)`",
             ));
         }
     }
@@ -277,64 +235,19 @@ fn validate_exit_ordering(sem: &FieldSemantics) -> syn::Result<()> {
     let mut seen_close = false;
 
     for group in &sem.groups {
-        let kind = GroupKind::from_path(&group.path)?;
-        match kind {
+        match group.kind {
             GroupKind::Close => {
                 seen_close = true;
             }
-            GroupKind::Sweep => {
-                if seen_close {
-                    return Err(syn::Error::new_spanned(
-                        span,
-                        "`sweep(...)` must appear before `close(...)` — wrong ordering is always \
-                         a bug",
-                    ));
-                }
+            GroupKind::Sweep if seen_close => {
+                return Err(syn::Error::new_spanned(
+                    span,
+                    "`sweep(...)` must appear before `close(...)` — wrong ordering is always a bug",
+                ));
             }
             _ => {}
         }
     }
 
     Ok(())
-}
-
-/// Validate that each group has its required args.
-/// Runs after program inference, so inferred args are already present.
-///
-/// `token_program` is NOT required for `token(...)` and `mint(...)` —
-/// for concrete account types (Account<Token>), AccountLoad already
-/// validates the owner. token_program is only needed for InterfaceAccount,
-/// where inference will have injected it.
-fn validate_required_group_args(sem: &FieldSemantics) -> syn::Result<()> {
-    for group in &sem.groups {
-        let kind = GroupKind::from_path(&group.path)?;
-        let required: &[&str] = match kind {
-            GroupKind::Token => &["mint", "authority"],
-            GroupKind::Mint => &["authority"],
-            GroupKind::AssociatedToken => {
-                if sem.has_init() {
-                    &["mint", "authority", "token_program", "system_program", "ata_program"]
-                } else {
-                    // token_program is optional for validation-only concrete types.
-                    // Inference will have injected it if a program field exists.
-                    &["mint", "authority"]
-                }
-            }
-            GroupKind::Close => continue, // validated by validate_close_groups
-            GroupKind::Sweep => &["receiver", "mint", "authority", "token_program"],
-        };
-        for &key in required {
-            if !has_arg(&group.args, key) {
-                return Err(syn::Error::new_spanned(
-                    &group.path,
-                    format!("`{}(...)` requires `{key} = ...`", kind.name()),
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn has_arg(args: &[GroupArg], key: &str) -> bool {
-    args.iter().any(|arg| arg.key == key)
 }
