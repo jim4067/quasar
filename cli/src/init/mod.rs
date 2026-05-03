@@ -109,7 +109,9 @@ pub fn run(cmd: crate::InitCommand) -> CliResult {
             prompt = prompt.default(default);
         }
         prompt.interact_text().map_err(anyhow::Error::from)?
-    };
+    }
+    .trim()
+    .to_string();
 
     // Validate the target directory before prompting for remaining options
     scaffold::validate_target_dir(&name)?;
@@ -271,7 +273,10 @@ pub fn run(cmd: crate::InitCommand) -> CliResult {
                     .default("pnpm test".into())
                     .interact_text()
                     .map_err(anyhow::Error::from)?;
-                PackageManager::Other { install, test }
+                PackageManager::Other {
+                    install: install.trim().to_string(),
+                    test: test.trim().to_string(),
+                }
             }
         })
     } else {
