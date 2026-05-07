@@ -337,6 +337,62 @@ fn test_execute_transfer_insufficient_signers() {
     println!("  INSUFFICIENT_SIGNERS: correctly rejected");
 }
 
+#[test]
+fn test_execute_transfer_duplicate_signer_counts_once() {
+    let mut svm = setup();
+
+    let system_program = quasar_svm::system_program::ID;
+    let creator = CREATOR;
+    let signer1 = SIGNER1;
+    let signer2 = SIGNER2;
+    let signer3 = SIGNER3;
+    let recipient = RECIPIENT;
+
+    let (config, config_bump) =
+        Pubkey::find_program_address(&[b"multisig", creator.as_ref()], &crate::ID);
+    let (vault, _) = Pubkey::find_program_address(&[b"vault", config.as_ref()], &crate::ID);
+
+    let instruction: Instruction = ExecuteTransferInstruction {
+        config,
+        creator,
+        vault,
+        recipient,
+        system_program,
+        amount: 1_000_000_000,
+        remaining_accounts: vec![
+            AccountMeta::new_readonly(signer1, true),
+            AccountMeta::new_readonly(signer1, true),
+        ],
+    }
+    .into();
+
+    let result = svm.process_instruction(
+        &instruction,
+        &[
+            config_account(
+                config,
+                creator,
+                2,
+                config_bump,
+                b"",
+                &[signer1, signer2, signer3],
+            ),
+            empty(creator),
+            Account {
+                address: vault,
+                lamports: 5_000_000_000,
+                data: vec![],
+                owner: quasar_svm::system_program::ID,
+                executable: false,
+            },
+            empty(recipient),
+            empty(signer1),
+        ],
+    );
+
+    assert!(result.is_err(), "duplicate signer should count once");
+}
+
 // NOTE: UTF-8 re-validation was removed in Phase 7 (perf/cu-optimizations).
 // The owner check already proves the account was written by this program,
 // and all PodString write paths accept &str (valid UTF-8 by construction).
