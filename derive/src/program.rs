@@ -692,14 +692,29 @@ pub(crate) fn program(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .iter()
                 .map(|spec| &spec.accounts_type)
                 .collect();
-            quote! {
-                const __QUASAR_NEEDS_EVENT_CPI: bool =
-                    false #(|| <#accounts_types as AccountCount>::NEEDS_EVENT_CPI)*;
-                if !instruction_data.is_empty() && instruction_data[0] == 0xFF {
+            // Small dispatch tables compile smaller with the explicit 0xFF
+            // invalid-instruction fast path. Larger tables benefit from
+            // erasing it unless an account set can actually service event CPI.
+            if instruction_specs.len() >= 4 {
+                quote! {
+                    const __QUASAR_NEEDS_EVENT_CPI: bool =
+                        false #(|| <#accounts_types as AccountCount>::NEEDS_EVENT_CPI)*;
                     if __QUASAR_NEEDS_EVENT_CPI {
-                        return __handle_event(ptr, instruction_data);
+                        if !instruction_data.is_empty() && instruction_data[0] == 0xFF {
+                            return __handle_event(ptr, instruction_data);
+                        }
                     }
-                    return Err(ProgramError::InvalidInstructionData);
+                }
+            } else {
+                quote! {
+                    const __QUASAR_NEEDS_EVENT_CPI: bool =
+                        false #(|| <#accounts_types as AccountCount>::NEEDS_EVENT_CPI)*;
+                    if !instruction_data.is_empty() && instruction_data[0] == 0xFF {
+                        if __QUASAR_NEEDS_EVENT_CPI {
+                            return __handle_event(ptr, instruction_data);
+                        }
+                        return Err(ProgramError::InvalidInstructionData);
+                    }
                 }
             }
         } else {
