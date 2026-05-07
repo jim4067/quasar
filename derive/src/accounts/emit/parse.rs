@@ -8,7 +8,7 @@
 //! let __rent_ctx = OpCtxWithRent::new(&program_id, &__rent);
 //!
 //! // Phase 1: load non-init fields
-//! let field_a = <Ty>::load(field_a, "field_a")?;
+//! let field_a = <Ty>::load(field_a)?;
 //!
 //! // Phase 2: address verify + init CPI for init fields (field-ordered)
 //! // Phase 3: load init fields (inlined into behavior init sequence)
@@ -458,7 +458,6 @@ fn emit_load_filtered(
 fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
     let ident = &sem.core.ident;
     let ty = &sem.core.effective_ty;
-    let field_name_str = ident.to_string();
 
     if sem.core.dynamic {
         let inner_ty = sem.core.inner_ty.as_ref().unwrap_or(ty);
@@ -472,7 +471,7 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
                 let mut #ident = if quasar_lang::keys_eq(#ident.address(), __program_id) {
                     None
                 } else {
-                    Some(<#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident, #field_name_str)?)
+                    Some(<#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident)?)
                 };
             }
         } else {
@@ -480,7 +479,7 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
                 let #ident = if quasar_lang::keys_eq(#ident.address(), __program_id) {
                     None
                 } else {
-                    Some(<#ty as quasar_lang::account_load::AccountLoad>::load(#ident, #field_name_str)?)
+                    Some(<#ty as quasar_lang::account_load::AccountLoad>::load(#ident)?)
                 };
             }
         };
@@ -488,11 +487,11 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
 
     if sem.core.is_mut {
         quote! {
-            let mut #ident = <#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident, #field_name_str)?;
+            let mut #ident = <#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident)?;
         }
     } else {
         quote! {
-            let #ident = <#ty as quasar_lang::account_load::AccountLoad>::load(#ident, #field_name_str)?;
+            let #ident = <#ty as quasar_lang::account_load::AccountLoad>::load(#ident)?;
         }
     }
 }

@@ -153,8 +153,7 @@ fn metadata_deref_reads_correct_fields() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result =
-        <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view, "metadata");
+    let result = <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_ok());
 
     let account = unsafe { MetadataAccount::from_account_view_unchecked(&view) };
@@ -178,8 +177,7 @@ fn metadata_wrong_key_byte_rejected() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result =
-        <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view, "metadata");
+    let result = <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_err());
 }
 
@@ -198,8 +196,7 @@ fn metadata_wrong_owner_rejected() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result =
-        <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view, "metadata");
+    let result = <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(matches!(result, Err(ProgramError::IllegalOwner)));
 }
 
@@ -218,8 +215,7 @@ fn metadata_data_too_small_rejected() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result =
-        <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view, "metadata");
+    let result = <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_err());
 }
 
@@ -242,10 +238,7 @@ fn master_edition_deref_reads_correct_fields() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(
-        &view,
-        "master_edition",
-    );
+    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_ok());
 
     let account = unsafe { MasterEditionAccount::from_account_view_unchecked(&view) };
@@ -269,10 +262,7 @@ fn master_edition_unlimited_supply() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(
-        &view,
-        "master_edition",
-    );
+    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_ok());
 
     let account = unsafe { MasterEditionAccount::from_account_view_unchecked(&view) };
@@ -295,10 +285,7 @@ fn master_edition_wrong_key_byte_rejected() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(
-        &view,
-        "master_edition",
-    );
+    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_err());
 }
 
@@ -317,10 +304,7 @@ fn master_edition_data_too_small_rejected() {
     buf.write_data(&data);
 
     let view = unsafe { buf.view() };
-    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(
-        &view,
-        "master_edition",
-    );
+    let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_err());
 }
 
@@ -344,8 +328,7 @@ fn metadata_all_zeros_rejected() {
 
     let view = unsafe { buf.view() };
     // key=0, should be rejected (not 4)
-    let result =
-        <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view, "metadata");
+    let result = <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_err());
 }
 
@@ -365,8 +348,7 @@ fn metadata_all_ff_rejected_or_valid() {
 
     let view = unsafe { buf.view() };
     // key=0xFF, should be rejected (not 4)
-    let result =
-        <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view, "metadata");
+    let result = <MetadataAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_err());
 }
 

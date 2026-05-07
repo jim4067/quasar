@@ -88,7 +88,7 @@ pub(crate) fn generate_one_of_account(
         .iter()
         .map(|v| {
             quote! {
-                <#v as quasar_lang::account_load::AccountLoad>::check(view, "").is_ok()
+                <#v as quasar_lang::account_load::AccountLoad>::check(view).is_ok()
             }
         })
         .collect();
@@ -96,10 +96,7 @@ pub(crate) fn generate_one_of_account(
     let account_check = quote! {
         impl quasar_lang::account_load::AccountLoad for #name {
             #[inline(always)]
-            fn check(
-                view: &quasar_lang::__internal::AccountView,
-                _field_name: &str,
-            ) -> Result<(), quasar_lang::__solana_program_error::ProgramError> {
+            fn check(view: &quasar_lang::__internal::AccountView) -> Result<(), quasar_lang::__solana_program_error::ProgramError> {
                 if #(#variant_checks)||* {
                     Ok(())
                 } else {

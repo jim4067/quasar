@@ -195,7 +195,7 @@ impl<T: crate::account_load::AccountLoad + CheckOwner + StaticView> Account<T> {
     #[inline(always)]
     pub fn from_account_view(view: &AccountView) -> Result<&Self, ProgramError> {
         T::check_owner(view)?;
-        T::check(view, "")?;
+        T::check(view)?;
         Ok(unsafe { &*(view as *const AccountView as *const Self) })
     }
 }
@@ -337,18 +337,12 @@ impl<T: AsAccountView + crate::account_load::AccountLoad + CheckOwner + StaticVi
     crate::account_load::AccountLoad for Account<T>
 {
     #[inline(always)]
-    fn check(
-        view: &AccountView,
-        field_name: &str,
-    ) -> Result<(), solana_program_error::ProgramError> {
+    fn check(view: &AccountView) -> Result<(), solana_program_error::ProgramError> {
         T::check_owner(view).inspect_err(|_| {
             #[cfg(feature = "debug")]
-            crate::prelude::log(&::alloc::format!(
-                "Owner check failed for account '{}'",
-                field_name
-            ));
+            crate::prelude::log("Owner check failed for account");
         })?;
-        T::check(view, field_name)?;
+        T::check(view)?;
         Ok(())
     }
 }

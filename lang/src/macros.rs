@@ -66,10 +66,7 @@ macro_rules! define_account {
 
         impl $crate::account_load::AccountLoad for $name {
             #[inline(always)]
-            fn check(
-                view: &AccountView,
-                _field_name: &str,
-            ) -> Result<(), $crate::__solana_program_error::ProgramError> {
+            fn check(view: &AccountView) -> Result<(), $crate::__solana_program_error::ProgramError> {
                 $(<$name as $check>::check(view)?;)*
                 Ok(())
             }

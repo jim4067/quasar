@@ -15,7 +15,7 @@ pub trait AccountLoad: AsAccountView + Sized {
     ///
     /// Header flags (signer, writable, executable) are already validated by
     /// `parse_accounts` before this is called.
-    fn check(view: &AccountView, field_name: &str) -> Result<(), ProgramError>;
+    fn check(view: &AccountView) -> Result<(), ProgramError>;
 
     /// # Safety
     /// Caller must ensure the `AccountView` is valid for `#[repr(transparent)]`
@@ -33,14 +33,14 @@ pub trait AccountLoad: AsAccountView + Sized {
     }
 
     #[inline(always)]
-    fn load(view: &AccountView, field_name: &str) -> Result<Self, ProgramError> {
-        Self::check(view, field_name)?;
+    fn load(view: &AccountView) -> Result<Self, ProgramError> {
+        Self::check(view)?;
         Ok(unsafe { core::ptr::read(Self::from_view_unchecked(view) as *const Self) })
     }
 
     #[inline(always)]
-    fn load_mut(view: &mut AccountView, field_name: &str) -> Result<Self, ProgramError> {
-        Self::check(view, field_name)?;
+    fn load_mut(view: &mut AccountView) -> Result<Self, ProgramError> {
+        Self::check(view)?;
         Ok(unsafe { core::ptr::read(Self::from_view_unchecked_mut(view) as *const Self) })
     }
 

@@ -115,10 +115,7 @@ pub(super) fn emit_dynamic_account_load(spec: AccountLoadSpec<'_>) -> proc_macro
     quote! {
         impl quasar_lang::account_load::AccountLoad for #name {
             #[inline(always)]
-            fn check(
-                view: &quasar_lang::__internal::AccountView,
-                _field_name: &str,
-            ) -> Result<(), quasar_lang::__solana_program_error::ProgramError> {
+            fn check(view: &quasar_lang::__internal::AccountView) -> Result<(), quasar_lang::__solana_program_error::ProgramError> {
                 #body
             }
         }

@@ -275,7 +275,7 @@ fn token_deref_reads_all_fields() {
 
     // Use Account<Token> to exercise Deref → TokenDataZc
     <Token as CheckOwner>::check_owner(&view).unwrap();
-    <Token as quasar_lang::account_load::AccountLoad>::check(&view, "").unwrap();
+    <Token as quasar_lang::account_load::AccountLoad>::check(&view).unwrap();
     let account = unsafe { Account::<Token>::from_account_view_unchecked(&view) };
     let state: &TokenDataZc = &*account;
 
@@ -451,7 +451,7 @@ fn mint_deref_reads_all_fields() {
     let view = unsafe { buf.view() };
 
     <Mint as CheckOwner>::check_owner(&view).unwrap();
-    <Mint as quasar_lang::account_load::AccountLoad>::check(&view, "").unwrap();
+    <Mint as quasar_lang::account_load::AccountLoad>::check(&view).unwrap();
     let account = unsafe { Account::<Mint>::from_account_view_unchecked(&view) };
     let state: &MintDataZc = &*account;
 
@@ -1048,7 +1048,7 @@ fn account_check_data_too_small() {
 
     let view = unsafe { buf.view() };
     assert_eq!(
-        <Token as quasar_lang::account_load::AccountLoad>::check(&view, "").unwrap_err(),
+        <Token as quasar_lang::account_load::AccountLoad>::check(&view).unwrap_err(),
         ProgramError::AccountDataTooSmall
     );
 }
@@ -1067,7 +1067,7 @@ fn mint_account_check_data_too_small() {
 
     let view = unsafe { buf.view() };
     assert_eq!(
-        <Mint as quasar_lang::account_load::AccountLoad>::check(&view, "").unwrap_err(),
+        <Mint as quasar_lang::account_load::AccountLoad>::check(&view).unwrap_err(),
         ProgramError::AccountDataTooSmall
     );
 }

@@ -883,10 +883,7 @@ pub(crate) fn program(attr: TokenStream, item: TokenStream) -> TokenStream {
         impl quasar_lang::account_load::AccountLoad for EventAuthority {
 
             #[inline(always)]
-            fn check(
-                view: &AccountView,
-                _field_name: &str,
-            ) -> Result<(), ProgramError> {
+            fn check(view: &AccountView) -> Result<(), ProgramError> {
                 if !quasar_lang::keys_eq(view.address(), &Self::ADDRESS) {
                     return Err(ProgramError::InvalidSeeds);
                 }
