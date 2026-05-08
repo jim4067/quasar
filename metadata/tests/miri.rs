@@ -9,11 +9,14 @@
 #![allow(clippy::needless_range_loop)]
 
 use {
-    quasar_lang::__internal::{
-        AccountView, RuntimeAccount, MAX_PERMITTED_DATA_INCREASE, NOT_BORROWED,
+    quasar_lang::{
+        __internal::{AccountView, RuntimeAccount, MAX_PERMITTED_DATA_INCREASE, NOT_BORROWED},
+        account_load::AccountLoad,
+        accounts::Account,
     },
     quasar_metadata::{
-        MasterEditionAccount, MasterEditionPrefixZc, MetadataAccount, MetadataPrefixZc,
+        validate::validate_master_edition_account, MasterEditionAccount, MasterEditionPrefixZc,
+        MetadataAccount, MetadataPrefixZc,
     },
     solana_address::Address,
     solana_program_error::ProgramError,
@@ -306,6 +309,31 @@ fn master_edition_data_too_small_rejected() {
     let view = unsafe { buf.view() };
     let result = <MasterEditionAccount as quasar_lang::account_load::AccountLoad>::check(&view);
     assert!(result.is_err());
+}
+
+#[test]
+fn master_edition_behavior_validation_rejects_invalid_max_supply_tag_after_fast_load() {
+    let mut data = build_master_edition_data(6, 42, None);
+    data[9] = 2; // invalid Borsh Option tag for max_supply
+    let mut buf = AccountBuffer::new(data.len());
+    buf.init(
+        FAKE_ADDR,
+        METADATA_OWNER,
+        1_000_000,
+        data.len() as u64,
+        false,
+        false,
+    );
+    buf.write_data(&data);
+
+    let view = unsafe { buf.view() };
+    assert!(
+        unsafe { <Account<MasterEditionAccount> as AccountLoad>::load_intrinsic(&view) }.is_ok()
+    );
+    assert_eq!(
+        validate_master_edition_account(&view, None),
+        Err(ProgramError::InvalidAccountData)
+    );
 }
 
 // ---------------------------------------------------------------------------

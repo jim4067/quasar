@@ -27,6 +27,15 @@ pub trait AccountLoad: AsAccountView + Sized {
         Self::check(view)
     }
 
+    /// Validate only intrinsic account invariants.
+    ///
+    /// The default preserves normal account loading. Wrapper types may make
+    /// this cheaper for protocol behaviors that validate account data.
+    #[inline(always)]
+    fn check_intrinsic(view: &AccountView) -> Result<(), ProgramError> {
+        Self::check(view)
+    }
+
     /// # Safety
     /// Caller must ensure the `AccountView` is valid for `#[repr(transparent)]`
     /// cast.
@@ -63,6 +72,26 @@ pub trait AccountLoad: AsAccountView + Sized {
     #[inline(always)]
     fn load_mut_checked(view: &mut AccountView) -> Result<Self, ProgramError> {
         Self::check_checked(view)?;
+        Ok(unsafe { core::ptr::read(Self::from_view_unchecked_mut(view) as *const Self) })
+    }
+
+    /// # Safety
+    ///
+    /// Caller must ensure any validation skipped by `check_intrinsic` is
+    /// completed before the loaded account can be observed or dereferenced.
+    #[inline(always)]
+    unsafe fn load_intrinsic(view: &AccountView) -> Result<Self, ProgramError> {
+        Self::check_intrinsic(view)?;
+        Ok(unsafe { core::ptr::read(Self::from_view_unchecked(view) as *const Self) })
+    }
+
+    /// # Safety
+    ///
+    /// Caller must ensure any validation skipped by `check_intrinsic` is
+    /// completed before the loaded account can be observed or dereferenced.
+    #[inline(always)]
+    unsafe fn load_mut_intrinsic(view: &mut AccountView) -> Result<Self, ProgramError> {
+        Self::check_intrinsic(view)?;
         Ok(unsafe { core::ptr::read(Self::from_view_unchecked_mut(view) as *const Self) })
     }
 

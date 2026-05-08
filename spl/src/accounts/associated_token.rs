@@ -114,12 +114,27 @@ impl<'a> ArgsBuilder<'a> {
 
 pub struct Behavior;
 
+const ATA_PROGRAM_ARG: u64 = quasar_lang::account_behavior::behavior_arg_key_hash("ata_program");
+const SYSTEM_PROGRAM_ARG: u64 =
+    quasar_lang::account_behavior::behavior_arg_key_hash("system_program");
+
 macro_rules! impl_ata_behavior {
-    ($wrapper:ty, check_token_program = $check_token_program:literal) => {
+    (
+        $wrapper:ty,
+        check_token_program = $check_token_program:literal,
+        validates_account_data = $validates_account_data:literal
+    ) => {
         impl AccountBehavior<$wrapper> for Behavior {
             type Args<'a> = Args<'a>;
             const SETS_INIT_PARAMS: bool = true;
             const INIT_SATISFIES_CHECK: bool = true;
+            const VALIDATES_ACCOUNT_DATA: bool = $validates_account_data;
+
+            #[inline(always)]
+            fn uses_arg<const PHASE: u8, const KEY: u64>() -> bool {
+                !(PHASE == quasar_lang::account_behavior::ARG_PHASE_CHECK
+                    && (KEY == ATA_PROGRAM_ARG || KEY == SYSTEM_PROGRAM_ARG))
+            }
 
             #[inline(always)]
             fn set_init_param<'a>(
@@ -159,14 +174,20 @@ macro_rules! impl_ata_behavior {
     };
 }
 
-impl_ata_behavior!(Account<crate::token::Token>, check_token_program = false);
+impl_ata_behavior!(
+    Account<crate::token::Token>,
+    check_token_program = false,
+    validates_account_data = true
+);
 impl_ata_behavior!(
     Account<crate::token_2022::Token2022>,
-    check_token_program = false
+    check_token_program = false,
+    validates_account_data = true
 );
 impl_ata_behavior!(
     InterfaceAccount<crate::token::Token>,
-    check_token_program = true
+    check_token_program = true,
+    validates_account_data = false
 );
 
 /// Check-only behavior for InterfaceAccount<TokenInterface>.

@@ -82,6 +82,11 @@ macro_rules! define_account {
                     .map_err(|_| $crate::__solana_program_error::ProgramError::InvalidAccountData)?;
                 Ok(())
             }
+
+            #[inline(always)]
+            fn check_intrinsic(_view: &AccountView) -> Result<(), $crate::__solana_program_error::ProgramError> {
+                Ok(())
+            }
         }
 
     };

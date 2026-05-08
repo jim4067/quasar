@@ -39,6 +39,17 @@ const _: () = assert!(core::mem::offset_of!(TokenDataZc, close_authority) == 129
 /// Semantic accessors for COption fields (auto-generated accessors don't cover
 /// PFX=4).
 impl TokenDataZc {
+    #[inline(always)]
+    pub fn coption_tags_valid(&self) -> bool {
+        self.delegate.raw_tag() <= 1
+            && self.native.raw_tag() <= 1
+            && self.close_authority.raw_tag() <= 1
+    }
+    #[inline(always)]
+    pub fn state_valid(&self) -> bool {
+        self.state <= 2
+    }
+
     pub fn has_delegate(&self) -> bool {
         self.delegate.is_some()
     }
@@ -98,6 +109,15 @@ const _: () = assert!(core::mem::offset_of!(MintDataZc, is_initialized) == 45);
 const _: () = assert!(core::mem::offset_of!(MintDataZc, freeze_authority) == 46);
 
 impl MintDataZc {
+    #[inline(always)]
+    pub fn coption_tags_valid(&self) -> bool {
+        self.mint_authority.raw_tag() <= 1 && self.freeze_authority.raw_tag() <= 1
+    }
+    #[inline(always)]
+    pub fn initialized_flag_valid(&self) -> bool {
+        self.is_initialized <= 1
+    }
+
     pub fn is_initialized(&self) -> bool {
         self.is_initialized != 0
     }
@@ -130,7 +150,7 @@ quasar_lang::define_account!(
     ///
     /// Use as `Account<Token>` for single-program token accounts,
     /// or `InterfaceAccount<Token>` to accept both SPL Token and Token-2022.
-    pub struct Token => [checks::DataLen, checks::ZeroPod]: TokenData
+    pub struct Token => [checks::ZeroPod]: TokenData
 );
 
 impl Owner for Token {
@@ -149,7 +169,7 @@ quasar_lang::define_account!(
     ///
     /// Use as `Account<Mint>` for single-program mints,
     /// or `InterfaceAccount<Mint>` to accept both SPL Token and Token-2022.
-    pub struct Mint => [checks::DataLen, checks::ZeroPod]: MintData
+    pub struct Mint => [checks::ZeroPod]: MintData
 );
 
 impl Owner for Mint {

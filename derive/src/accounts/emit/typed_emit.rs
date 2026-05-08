@@ -24,7 +24,7 @@ pub(crate) fn emit_post_load_behavior(
     let path = &call.path;
     let bhv =
         quote! { <#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#field_ty>> };
-    let args_block = emit_args_builder(call);
+    let args_block = emit_args_builder(call, field_ty);
 
     match call.phase {
         BehaviorPhase::AfterInit => quote! {
@@ -66,7 +66,7 @@ pub(crate) fn emit_epilogue_behavior(
     let path = &call.path;
     let bhv =
         quote! { <#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#field_ty>> };
-    let args_block = emit_exit_args_builder(call, field_ident);
+    let args_block = emit_exit_args_builder(call, field_ident, field_ty);
 
     quote! {
         if #bhv::RUN_EXIT {
@@ -94,7 +94,7 @@ pub(crate) fn emit_behavior_init(
         .iter()
         .map(|call| {
             let path = &call.path;
-            let args_block = emit_args_builder(call);
+            let args_block = emit_args_builder(call, field_ty);
             quote! {
                 if <#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#field_ty>>::SETS_INIT_PARAMS {
                     #args_block
@@ -249,15 +249,28 @@ pub(crate) fn emit_program_close(
 
 /// Emit the builder chain for a behavior call (parse-time phase: uses local
 /// vars).
-fn emit_args_builder(call: &BehaviorCall) -> proc_macro2::TokenStream {
+fn emit_args_builder(call: &BehaviorCall, field_ty: &syn::Type) -> proc_macro2::TokenStream {
     let path = &call.path;
+    let bhv =
+        quote! { <#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#field_ty>> };
+    let phase = emit_arg_phase_const(call.phase);
     let setters: Vec<proc_macro2::TokenStream> = call
         .args
         .iter()
         .map(|arg| {
             let key = &arg.key;
+            let key_lit = key.to_string();
             let val = emit_lowered_value(&arg.lowered);
-            quote! { .#key(#val) }
+            quote! {
+                let __bhv_builder = if #bhv::uses_arg::<
+                    { #phase },
+                    { quasar_lang::account_behavior::behavior_arg_key_hash(#key_lit) },
+                >() {
+                    __bhv_builder.#key(#val)
+                } else {
+                    __bhv_builder
+                };
+            }
         })
         .collect();
 
@@ -268,9 +281,9 @@ fn emit_args_builder(call: &BehaviorCall) -> proc_macro2::TokenStream {
     };
 
     quote! {
-        let __bhv_args = #path::Args::builder()
-            #(#setters)*
-            .#build_method()?;
+        let __bhv_builder = #path::Args::builder();
+        #(#setters)*
+        let __bhv_args = __bhv_builder.#build_method()?;
     }
 }
 
@@ -279,22 +292,50 @@ fn emit_args_builder(call: &BehaviorCall) -> proc_macro2::TokenStream {
 fn emit_exit_args_builder(
     call: &BehaviorCall,
     _field_ident: &syn::Ident,
+    field_ty: &syn::Type,
 ) -> proc_macro2::TokenStream {
     let path = &call.path;
+    let bhv =
+        quote! { <#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#field_ty>> };
+    let phase = emit_arg_phase_const(call.phase);
     let setters: Vec<proc_macro2::TokenStream> = call
         .args
         .iter()
         .map(|arg| {
             let key = &arg.key;
+            let key_lit = key.to_string();
             let val = emit_exit_lowered_value(&arg.lowered);
-            quote! { .#key(#val) }
+            quote! {
+                let __bhv_builder = if #bhv::uses_arg::<
+                    { #phase },
+                    { quasar_lang::account_behavior::behavior_arg_key_hash(#key_lit) },
+                >() {
+                    __bhv_builder.#key(#val)
+                } else {
+                    __bhv_builder
+                };
+            }
         })
         .collect();
 
     quote! {
-        let __bhv_args = #path::Args::builder()
-            #(#setters)*
-            .build_exit()?;
+        let __bhv_builder = #path::Args::builder();
+        #(#setters)*
+        let __bhv_args = __bhv_builder.build_exit()?;
+    }
+}
+
+fn emit_arg_phase_const(phase: BehaviorPhase) -> proc_macro2::TokenStream {
+    match phase {
+        BehaviorPhase::SetInitParam => {
+            quote! { quasar_lang::account_behavior::ARG_PHASE_SET_INIT_PARAM }
+        }
+        BehaviorPhase::AfterInit => {
+            quote! { quasar_lang::account_behavior::ARG_PHASE_AFTER_INIT }
+        }
+        BehaviorPhase::Check => quote! { quasar_lang::account_behavior::ARG_PHASE_CHECK },
+        BehaviorPhase::Update => quote! { quasar_lang::account_behavior::ARG_PHASE_UPDATE },
+        BehaviorPhase::Exit => quote! { quasar_lang::account_behavior::ARG_PHASE_EXIT },
     }
 }
 

@@ -458,6 +458,7 @@ fn emit_load_filtered(
 fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
     let ident = &sem.core.ident;
     let ty = &sem.core.effective_ty;
+    let behavior_validates_account_data = behavior_validates_account_data_expr(sem);
 
     if sem.core.dynamic {
         let inner_ty = sem.core.inner_ty.as_ref().unwrap_or(ty);
@@ -466,12 +467,14 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
     }
 
     if sem.core.optional {
+        let load = emit_load_expr(
+            ident,
+            ty,
+            sem.core.is_mut,
+            sem.core.dup,
+            behavior_validates_account_data.as_ref(),
+        );
         return if sem.core.is_mut {
-            let load = if sem.core.dup {
-                quote! { <#ty as quasar_lang::account_load::AccountLoad>::load_mut_checked(#ident)? }
-            } else {
-                quote! { <#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident)? }
-            };
             quote! {
                 let mut #ident = if quasar_lang::keys_eq(#ident.address(), __program_id) {
                     None
@@ -480,11 +483,6 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
                 };
             }
         } else {
-            let load = if sem.core.dup {
-                quote! { <#ty as quasar_lang::account_load::AccountLoad>::load_checked(#ident)? }
-            } else {
-                quote! { <#ty as quasar_lang::account_load::AccountLoad>::load(#ident)? }
-            };
             quote! {
                 let #ident = if quasar_lang::keys_eq(#ident.address(), __program_id) {
                     None
@@ -495,25 +493,75 @@ fn emit_one_load(sem: &FieldSemantics) -> proc_macro2::TokenStream {
         };
     }
 
+    let load = emit_load_expr(
+        ident,
+        ty,
+        sem.core.is_mut,
+        sem.core.dup,
+        behavior_validates_account_data.as_ref(),
+    );
     if sem.core.is_mut {
-        if sem.core.dup {
-            quote! {
-                let mut #ident = <#ty as quasar_lang::account_load::AccountLoad>::load_mut_checked(#ident)?;
-            }
-        } else {
-            quote! {
-                let mut #ident = <#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident)?;
-            }
-        }
-    } else if sem.core.dup {
-        quote! {
-            let #ident = <#ty as quasar_lang::account_load::AccountLoad>::load_checked(#ident)?;
-        }
+        quote! { let mut #ident = #load; }
     } else {
-        quote! {
-            let #ident = <#ty as quasar_lang::account_load::AccountLoad>::load(#ident)?;
+        quote! { let #ident = #load; }
+    }
+}
+
+fn emit_load_expr(
+    ident: &syn::Ident,
+    ty: &syn::Type,
+    is_mut: bool,
+    checked: bool,
+    behavior_validates_account_data: Option<&proc_macro2::TokenStream>,
+) -> proc_macro2::TokenStream {
+    match (is_mut, checked, behavior_validates_account_data) {
+        (true, true, _) => {
+            quote! { <#ty as quasar_lang::account_load::AccountLoad>::load_mut_checked(#ident)? }
+        }
+        (false, true, _) => {
+            quote! { <#ty as quasar_lang::account_load::AccountLoad>::load_checked(#ident)? }
+        }
+        (true, false, Some(validates_account_data)) => quote! {
+            if #validates_account_data {
+                unsafe {
+                    <#ty as quasar_lang::account_load::AccountLoad>::load_mut_intrinsic(#ident)?
+                }
+            } else {
+                <#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident)?
+            }
+        },
+        (false, false, Some(validates_account_data)) => quote! {
+            if #validates_account_data {
+                unsafe {
+                    <#ty as quasar_lang::account_load::AccountLoad>::load_intrinsic(#ident)?
+                }
+            } else {
+                <#ty as quasar_lang::account_load::AccountLoad>::load(#ident)?
+            }
+        },
+        (true, false, None) => {
+            quote! { <#ty as quasar_lang::account_load::AccountLoad>::load_mut(#ident)? }
+        }
+        (false, false, None) => {
+            quote! { <#ty as quasar_lang::account_load::AccountLoad>::load(#ident)? }
         }
     }
+}
+
+fn behavior_validates_account_data_expr(sem: &FieldSemantics) -> Option<proc_macro2::TokenStream> {
+    if sem.groups.is_empty() {
+        return None;
+    }
+
+    let ty = &sem.core.effective_ty;
+    let terms = sem.groups.iter().map(|group| {
+        let path = &group.path;
+        quote! {
+            <#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#ty>>::VALIDATES_ACCOUNT_DATA
+        }
+    });
+
+    Some(quote! { false #(|| #terms)* })
 }
 
 // ==== User checks (structural — not behavior-group based) ====
@@ -597,6 +645,18 @@ fn emit_behavior_assertions(semantics: &[FieldSemantics]) -> proc_macro2::TokenS
                     );
                 });
             }
+
+            let validates_data_msg = format!(
+                "behavior `{}` sets VALIDATES_ACCOUNT_DATA and must keep RUN_CHECK = true",
+                group.name(),
+            );
+            asserts.push(quote! {
+                const _: () = assert!(
+                    !<#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#ty>>::VALIDATES_ACCOUNT_DATA
+                        || <#path::Behavior as quasar_lang::account_behavior::AccountBehavior<#ty>>::RUN_CHECK,
+                    #validates_data_msg,
+                );
+            });
         }
 
         // Init field assertions.
