@@ -157,6 +157,15 @@ pub fn generate_go_client(idl: &Idl) -> String {
             }
             writeln!(out, "\t{} solana.PublicKey", snake_to_pascal(&acc.name)).unwrap();
         }
+        for seed in account_field_seed_inputs(ix, idl) {
+            writeln!(
+                out,
+                "\t{} {}",
+                account_field_seed_input_name(&seed.path, &seed.field),
+                go_type(&seed.ty),
+            )
+            .unwrap();
+        }
         for arg in &ix.args {
             writeln!(out, "\t{} {}", snake_to_pascal(&arg.name), go_type(&arg.ty),).unwrap();
         }
@@ -192,6 +201,18 @@ pub fn generate_go_client(idl: &Idl) -> String {
                             seed_exprs.push(format!(
                                 "func() []byte {{ key := accountsMap[\"{}\"]; return key[:] }}()",
                                 path
+                            ));
+                        }
+                        IdlPdaSeed::AccountField {
+                            path,
+                            field,
+                            account,
+                            ..
+                        } => {
+                            let ty = account_field_type(idl, account, field);
+                            seed_exprs.push(go_pda_seed_expr(
+                                &format!("input.{}", account_field_seed_input_name(path, field)),
+                                ty.as_ref(),
                             ));
                         }
                         IdlPdaSeed::Arg { path, .. } => {
@@ -889,5 +910,115 @@ fn decode_field_expr(
         IdlType::Generic { generic } => {
             panic!("Generic type '{}' not supported in Go codegen", generic)
         }
+    }
+}
+
+struct AccountFieldSeedInput {
+    path: String,
+    field: String,
+    ty: IdlType,
+}
+
+fn account_field_seed_inputs(
+    ix: &crate::types::IdlInstruction,
+    idl: &Idl,
+) -> Vec<AccountFieldSeedInput> {
+    let mut inputs = Vec::new();
+    for acc in &ix.accounts {
+        let IdlResolver::Pda { seeds, .. } = &acc.resolver else {
+            continue;
+        };
+        for seed in seeds {
+            let IdlPdaSeed::AccountField {
+                path,
+                account,
+                field,
+            } = seed
+            else {
+                continue;
+            };
+            if inputs
+                .iter()
+                .any(|input: &AccountFieldSeedInput| input.path == *path && input.field == *field)
+            {
+                continue;
+            }
+            if let Some(ty) = account_field_type(idl, account, field) {
+                inputs.push(AccountFieldSeedInput {
+                    path: path.clone(),
+                    field: field.clone(),
+                    ty,
+                });
+            }
+        }
+    }
+    inputs
+}
+
+fn account_field_type(idl: &Idl, account: &str, field: &str) -> Option<IdlType> {
+    let mut current_account = account.to_string();
+    let mut field_ty = None;
+
+    for segment in field.split('.') {
+        let type_def = idl.types.iter().find(|ty| ty.name == current_account)?;
+        let field_def = type_def.fields.iter().find(|f| f.name == segment)?;
+        field_ty = Some(field_def.ty.clone());
+        if let IdlType::Defined { defined } = &field_def.ty {
+            current_account = defined.name.clone();
+        }
+    }
+
+    field_ty
+}
+
+fn account_field_seed_input_name(path: &str, field: &str) -> String {
+    format!(
+        "{}{}Seed",
+        snake_to_pascal(path),
+        field
+            .split('.')
+            .map(snake_to_pascal)
+            .collect::<Vec<_>>()
+            .join("")
+    )
+}
+
+fn go_pda_seed_expr(expr: &str, ty: Option<&IdlType>) -> String {
+    match ty {
+        Some(IdlType::Primitive(p)) => match p.as_str() {
+            "pubkey" => format!("func() []byte {{ key := {expr}; return key[:] }}()"),
+            "bool" => format!(
+                "func() []byte {{ if {expr} {{ return []byte{{1}} }}; return []byte{{0}} }}()"
+            ),
+            "u8" | "i8" => format!("[]byte{{byte({expr})}}"),
+            "u16" => format!(
+                "func() []byte {{ b := make([]byte, 2); binary.LittleEndian.PutUint16(b, {expr}); \
+                 return b }}()"
+            ),
+            "i16" => format!(
+                "func() []byte {{ b := make([]byte, 2); binary.LittleEndian.PutUint16(b, \
+                 uint16({expr})); return b }}()"
+            ),
+            "u32" => format!(
+                "func() []byte {{ b := make([]byte, 4); binary.LittleEndian.PutUint32(b, {expr}); \
+                 return b }}()"
+            ),
+            "i32" => format!(
+                "func() []byte {{ b := make([]byte, 4); binary.LittleEndian.PutUint32(b, \
+                 uint32({expr})); return b }}()"
+            ),
+            "u64" => format!(
+                "func() []byte {{ b := make([]byte, 8); binary.LittleEndian.PutUint64(b, {expr}); \
+                 return b }}()"
+            ),
+            "i64" => format!(
+                "func() []byte {{ b := make([]byte, 8); binary.LittleEndian.PutUint64(b, \
+                 uint64({expr})); return b }}()"
+            ),
+            "u128" | "i128" => format!("func() []byte {{ b := {expr}; return b[:] }}()"),
+            _ => expr.to_string(),
+        },
+        Some(IdlType::Array { .. }) => format!("{expr}[:]"),
+        _ => expr.to_string(),
     }
 }

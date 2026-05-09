@@ -138,12 +138,18 @@ fn emit_instructions(out: &mut String, prefix: &str, idl: &Idl) {
             .iter()
             .filter(|a| !matches!(a.resolver, IdlResolver::Pda { .. }))
             .collect();
+        let account_field_seeds = account_field_seed_inputs(ix);
 
         writeln!(out, "typedef struct {{").unwrap();
         for acc in &user_accounts {
             writeln!(out, "    Pubkey *{};", acc.name).unwrap();
         }
-        if user_accounts.is_empty() {
+        for (path, field) in &account_field_seeds {
+            let name = account_field_seed_input_name(path, field);
+            writeln!(out, "    const uint8_t *{name};").unwrap();
+            writeln!(out, "    uint64_t {name}_len;").unwrap();
+        }
+        if user_accounts.is_empty() && account_field_seeds.is_empty() {
             writeln!(out, "    uint8_t _pad;").unwrap();
         }
         writeln!(out, "}} {prefix}_{ix_snake}_accounts_t;\n").unwrap();
@@ -332,6 +338,15 @@ fn emit_pda_derivation(
                     .unwrap();
                 }
             }
+            IdlPdaSeed::AccountField { path, field, .. } => {
+                let name = account_field_seed_input_name(path, field);
+                writeln!(
+                    out,
+                    "        seeds[{i}].addr = accounts->{name}; seeds[{i}].len = \
+                     accounts->{name}_len;"
+                )
+                .unwrap();
+            }
             IdlPdaSeed::Arg { path, .. } => {
                 writeln!(
                     out,
@@ -350,6 +365,35 @@ fn emit_pda_derivation(
     )
     .unwrap();
     writeln!(out, "    }}").unwrap();
+}
+
+fn account_field_seed_inputs(ix: &crate::types::IdlInstruction) -> Vec<(String, String)> {
+    let mut inputs = Vec::new();
+    for acc in &ix.accounts {
+        let IdlResolver::Pda { seeds, .. } = &acc.resolver else {
+            continue;
+        };
+        for seed in seeds {
+            let IdlPdaSeed::AccountField { path, field, .. } = seed else {
+                continue;
+            };
+            if !inputs
+                .iter()
+                .any(|(seen_path, seen_field)| seen_path == path && seen_field == field)
+            {
+                inputs.push((path.clone(), field.clone()));
+            }
+        }
+    }
+    inputs
+}
+
+fn account_field_seed_input_name(path: &str, field: &str) -> String {
+    format!(
+        "{}_{}_seed",
+        path,
+        field.split('.').collect::<Vec<_>>().join("_")
+    )
 }
 
 fn emit_error_codes(out: &mut String, prefix: &str, errors: &[crate::types::IdlErrorDef]) {

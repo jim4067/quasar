@@ -164,6 +164,17 @@ pub fn generate_python_client(idl: &Idl) -> String {
             has_any_fields = true;
         }
 
+        for seed in account_field_seed_inputs(ix, idl) {
+            writeln!(
+                out,
+                "    {}: {}",
+                account_field_seed_input_name(&seed.path, &seed.field),
+                python_type(&seed.ty)
+            )
+            .unwrap();
+            has_any_fields = true;
+        }
+
         // Arg fields
         for arg in &ix.args {
             writeln!(
@@ -212,6 +223,18 @@ pub fn generate_python_client(idl: &Idl) -> String {
                         }
                         IdlPdaSeed::Account { path } => {
                             seed_exprs.push(format!("bytes(accounts_map[\"{}\"])", path));
+                        }
+                        IdlPdaSeed::AccountField {
+                            path,
+                            field,
+                            account,
+                            ..
+                        } => {
+                            let ty = account_field_type(idl, account, field);
+                            seed_exprs.push(python_pda_seed_expr(
+                                &format!("input.{}", account_field_seed_input_name(path, field)),
+                                ty.as_ref(),
+                            ));
                         }
                         IdlPdaSeed::Arg { path, .. } => {
                             seed_exprs.push(format!("input.{}", python_field_path(path)));
@@ -836,5 +859,99 @@ fn py_bool(b: bool) -> &'static str {
         "True"
     } else {
         "False"
+    }
+}
+
+struct AccountFieldSeedInput {
+    path: String,
+    field: String,
+    ty: IdlType,
+}
+
+fn account_field_seed_inputs(
+    ix: &crate::types::IdlInstruction,
+    idl: &Idl,
+) -> Vec<AccountFieldSeedInput> {
+    let mut inputs = Vec::new();
+    for acc in &ix.accounts {
+        let IdlResolver::Pda { seeds, .. } = &acc.resolver else {
+            continue;
+        };
+        for seed in seeds {
+            let IdlPdaSeed::AccountField {
+                path,
+                account,
+                field,
+            } = seed
+            else {
+                continue;
+            };
+            if inputs
+                .iter()
+                .any(|input: &AccountFieldSeedInput| input.path == *path && input.field == *field)
+            {
+                continue;
+            }
+            if let Some(ty) = account_field_type(idl, account, field) {
+                inputs.push(AccountFieldSeedInput {
+                    path: path.clone(),
+                    field: field.clone(),
+                    ty,
+                });
+            }
+        }
+    }
+    inputs
+}
+
+fn account_field_type(idl: &Idl, account: &str, field: &str) -> Option<IdlType> {
+    let mut current_account = account.to_string();
+    let mut field_ty = None;
+
+    for segment in field.split('.') {
+        let type_def = idl.types.iter().find(|ty| ty.name == current_account)?;
+        let field_def = type_def.fields.iter().find(|f| f.name == segment)?;
+        field_ty = Some(field_def.ty.clone());
+        if let IdlType::Defined { defined } = &field_def.ty {
+            current_account = defined.name.clone();
+        }
+    }
+
+    field_ty
+}
+
+fn account_field_seed_input_name(path: &str, field: &str) -> String {
+    format!(
+        "{}_{}_seed",
+        camel_to_snake(path),
+        field
+            .split('.')
+            .map(camel_to_snake)
+            .collect::<Vec<_>>()
+            .join("_")
+    )
+}
+
+fn python_pda_seed_expr(expr: &str, ty: Option<&IdlType>) -> String {
+    match ty {
+        Some(IdlType::Primitive(p)) => match p.as_str() {
+            "pubkey" => format!("bytes({expr})"),
+            "bool" => format!("bytes([1 if {expr} else 0])"),
+            "u8" => format!("struct.pack(\"<B\", {expr})"),
+            "i8" => format!("struct.pack(\"<b\", {expr})"),
+            "u16" => format!("struct.pack(\"<H\", {expr})"),
+            "i16" => format!("struct.pack(\"<h\", {expr})"),
+            "u32" => format!("struct.pack(\"<I\", {expr})"),
+            "i32" => format!("struct.pack(\"<i\", {expr})"),
+            "u64" => format!("struct.pack(\"<Q\", {expr})"),
+            "i64" => format!("struct.pack(\"<q\", {expr})"),
+            "u128" | "i128" => format!(
+                "int({expr}).to_bytes(16, \"little\", signed={})",
+                p.starts_with('i')
+            ),
+            _ => expr.to_string(),
+        },
+        Some(IdlType::Array { .. }) => format!("bytes({expr})"),
+        _ => expr.to_string(),
     }
 }
