@@ -249,7 +249,9 @@ pub mod __internal {
     /// Handles:
     /// - Optional sentinel guards (program_id == account address means None)
     /// - Duplicate account reuse with borrow-state tracking
-    /// - Mutable dup rejection when `!flags.allow_dup`
+    /// - Optional sentinel dups: multiple `None` optionals sharing the program-ID
+    ///   sentinel are allowed without `#[account(dup)]` — no real data is aliased
+    /// - Non-sentinel dup rejection when `!flags.allow_dup`
     /// - Mask-based flag checks
     ///
     /// Returns the updated input pointer on success.
@@ -305,14 +307,23 @@ pub mod __internal {
         } else {
             // Dup branch: borrow_state != NOT_BORROWED means the SVM
             // deduplicated this account slot.
-            if !flags.allow_dup {
-                // Dups are only accepted for explicit #[account(dup)] fields.
-                return Err(ProgramError::AccountBorrowFailed);
-            }
-
             let idx = (actual_header & 0xFF) as usize;
             if crate::utils::hint::unlikely(idx >= offset) {
                 return Err(ProgramError::InvalidAccountData);
+            }
+
+            // Optional sentinel dup: if the canonical account is the program-ID
+            // sentinel, this dup is also None — allow it without requiring
+            // #[account(dup)] since no real account data is aliased.
+            if flags.is_optional && crate::keys_eq((*base.add(idx)).address(), program_id) {
+                core::ptr::write(base.add(offset), core::ptr::read(base.add(idx)));
+                let input = input.add(core::mem::size_of::<u64>());
+                return Ok(input);
+            }
+
+            if !flags.allow_dup {
+                // Dups are only accepted for explicit #[account(dup)] fields.
+                return Err(ProgramError::AccountBorrowFailed);
             }
 
             core::ptr::write(base.add(offset), core::ptr::read(base.add(idx)));
