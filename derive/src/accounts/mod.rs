@@ -205,11 +205,13 @@ fn emit_idl_accounts_meta(
             let resolver_tokens = emit_idl_resolver(sem, semantics, ix_args).unwrap_or_else(
                 || quote! { quasar_lang::idl_build::__reexport::IdlResolver::Input {} },
             );
+            let optional = sem.core.optional;
 
             quote! {
                 quasar_lang::idl_build::__reexport::IdlAccountNode {
                     name: quasar_lang::idl_build::s(#field_name),
                     client_type: None,
+                    optional: #optional,
                     writable: quasar_lang::idl_build::__reexport::AccountFlag::Fixed(#writable),
                     signer: quasar_lang::idl_build::__reexport::AccountFlag::Fixed(#signer),
                     resolver: #resolver_tokens,
